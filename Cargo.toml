@@ -1,0 +1,19 @@
+[package]
+name = "blog-demo"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib - build library (.dylib) compatible with C ABI, communicate via FFI
+crate-type = ["cdylib", "rlib"]
+
+[features]
+dev = ["console_error_panic_hook"]
+
+[dependencies]
+# make console_error_panic_hook optional, enabled on dev featureset
+console_error_panic_hook = { version = "0.1.7", optional = true }
+wasm-bindgen = "0.2.100"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.50"
