@@ -1,0 +1,15 @@
+{
+  "name": "blog-demo",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "web": "wasm-pack build --target web && python3 -m http.server 8000"
+  }
+}
