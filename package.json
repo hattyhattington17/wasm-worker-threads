@@ -10,6 +10,7 @@
     "test": "tests"
   },
   "scripts": {
-    "web": "wasm-pack build --target web && python3 -m http.server 8000"
+    "web": "wasm-pack build --target web && python3 -m http.server 8000",
+    "node": "wasm-pack build --target nodejs && node server.cjs"
   }
 }
