@@ -11,6 +11,7 @@
   },
   "scripts": {
     "web": "wasm-pack build --target web && python3 -m http.server 8000",
-    "node": "wasm-pack build --target nodejs && node server.cjs"
+    "node": "wasm-pack build --target nodejs && node server.cjs",
+    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat"
   }
 }
