@@ -5,13 +5,21 @@
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "web.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
     "web": "wasm-pack build --target web && python3 -m http.server 8000",
-    "node": "wasm-pack build --target nodejs && node server.cjs",
-    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat"
+    "node": "wasm-pack build --target nodejs && node nodejs.cjs",
+    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat",
+    "webpack": "rm -rf dist && rm -rf pkg && webpack-dev-server"
+  },
+  "devDependencies": {
+    "@wasm-tool/wasm-pack-plugin": "^1.7.0",
+    "copy-webpack-plugin": "^12.0.2",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.0"
   }
 }
