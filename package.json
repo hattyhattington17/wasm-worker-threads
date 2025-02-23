@@ -10,13 +10,13 @@
     "test": "tests"
   },
   "scripts": {
-    "web": "wasm-pack build --target web && python3 -m http.server 8000",
-    "node": "wasm-pack build --target nodejs && node nodejs.cjs",
+    "web": "wasm-pack build --dev --target web && python3 -m http.server 8000",
+    "node": "wasm-pack build --dev --target=nodejs && node nodejs.cjs",
     "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat",
     "webpack": "wasm-pack build && webpack-dev-server"
   },
   "devDependencies": {
-     "copy-webpack-plugin": "^12.0.2",
+    "copy-webpack-plugin": "^12.0.2",
     "webpack": "^5.97.1",
     "webpack-cli": "^6.0.1",
     "webpack-dev-server": "^5.2.0"
