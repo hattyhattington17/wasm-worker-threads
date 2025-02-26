@@ -1,5 +1,11 @@
 # Wasm Demo
 Demonstrates building a Rust library into a Wasm module with `wasm-pack` and consuming the Wasm module from nodejs, vanilla JS in a browser, and an application built with webpack.
+
+Usage
+```bash
+npm i
+npm i -g wasm-pack
+```
 - Build bindings for the module to execute in a browser environment and launch a dev server with `npm run web`
 - Use the library from node with `npm run node`
 - Build bindings for the module to execute in a project built with webpack with `npm run webpack`
@@ -16,6 +22,8 @@ Building the application with the `dev` profile causes `wasm-bindgen` to include
 [package.metadata.wasm-pack.profile.dev.wasm-bindgen]  
 dwarf-debug-info = true
 ```
+
+- To debug the nodejs code from VSCode, install [wasm-dwarf-debugging](https://marketplace.visualstudio.com/items?itemName=ms-vscode.wasm-dwarf-debugging) and run `npm run node` from the JavaScript debug terminal. Stepping into calls into the Wasm module should bring you to the Rust sources.
 
 
 > Note: To use the DWARF output for debugging in a browser, install [this extension](https://chromewebstore.google.com/detail/cc++-devtools-support-dwa/pdcpmagijalfljmkmjngeonclgbbannb) Currently the DWARF debug extension is having problems loading Rust sources into the browser so this may not work. Debugging should still work in an editor.
