@@ -1,3 +1,6 @@
 /target
 /dist
 /node_modules
+/pkg
+*.wat
+/bindings
