@@ -10,7 +10,7 @@
     "test": "tests"
   },
   "scripts": {
-    "web": "wasm-pack build --dev --target web && python3 -m http.server 8000",
+    "web": "wasm-pack build --dev --target web && npx serve .",
     "node": "wasm-pack build --dev --target=nodejs && node nodejs.cjs",
     "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat",
     "webpack": "wasm-pack build && webpack-dev-server"
