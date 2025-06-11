@@ -10,10 +10,11 @@
     "test": "tests"
   },
   "scripts": {
-    "web": "wasm-pack build --dev --target web && npx serve .",
-    "node": "wasm-pack build --dev --target=nodejs && node nodejs.cjs",
-    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat",
-    "webpack": "wasm-pack build && webpack-dev-server"
+    "build-node": "cargo +nightly build --target wasm32-unknown-unknown && wasm-bindgen --target nodejs --out-dir pkg target/wasm32-unknown-unknown/debug/blog_demo.wasm",
+    "build-web": "cargo +nightly build --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/debug/blog_demo.wasm",
+    "web": "npm run build-web && npx serve .",
+    "node": "npm run build-node && node nodejs.cjs",
+    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat"
   },
   "devDependencies": {
     "copy-webpack-plugin": "^12.0.2",
