@@ -12,6 +12,7 @@ rayon = "=1.10.0"
 spmc = "0.3.0"
 wasm-bindgen = "=0.2.89"
 js-sys = "=0.3.64"
+web-sys = "=0.3.64"
 
 [package.metadata.wasm-pack.profile.dev.wasm-bindgen]
 dwarf-debug-info = true

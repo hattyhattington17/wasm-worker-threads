@@ -63,7 +63,7 @@ impl PoolBuilder {
 
     /// create a rayon thread pool with the specified number of threads
     /// for each spawned handler, use the smpc channel sender to send the associated ThreadBuilder
-    /// the worker will receive 
+    /// the worker will receive a pointer to the receiver and call `run` on the ThreadBuilder
     pub fn build(&mut self) {
         unsafe {
             THREAD_POOL = Some(
@@ -110,6 +110,6 @@ where
     Receiver<rayon::ThreadBuilder>: Sync,
 {
     log("rust: wbg_rayon_start_worker");
-    let receiver = unsafe { &*receiver };
+    let receiver = unsafe { &*receiver }; 
     receiver.recv().unwrap_throw().run();
 }

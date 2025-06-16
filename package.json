@@ -9,16 +9,14 @@
   "directories": {
     "test": "tests"
   },
-  "scripts": {
-    "debug-node": "node nodejs.cjs",
+  "scripts": { 
     "clean": "rm -rf target && rm -rf pkg",
     "compile": "cargo build --target wasm32-unknown-unknown",
     "postprocess-node": "wasm-bindgen --keep-debug --target nodejs --out-dir pkg target/wasm32-unknown-unknown/debug/blog_demo.wasm",
     "patch-bindgen-node-output": "node patch-env.js pkg/blog_demo.js",
-    "build-web": "cargo +nightly build --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/debug/blog_demo.wasm",
-    "web": "npm run build-web && npx serve .",
+    "debug-node": "node nodejs.cjs",
     "node": "npm run clean && npm run compile && npm run postprocess-node && npm run patch-bindgen-node-output && node nodejs.cjs",
-    "wasm2wat": "wasm2wat pkg/blog_demo_bg.wasm -o blog_demo_bg.wat"
+    "wasm2wat": "wasm2wat --enable-threads pkg/blog_demo_bg.wasm -o blog_demo_bg.wat"
   },
   "devDependencies": {
     "copy-webpack-plugin": "^12.0.2",

@@ -1,3 +1,5 @@
+const { threadId } = require('worker_threads');
+
 /**
  * Wraps a function so it runs with a WebAssembly thread pool:
  *  - makes sure initThreadpool is called before the wrapped function is executed
@@ -20,13 +22,13 @@ function WithThreadPool({ initThreadPool, exitThreadPool }) {
 
     // drive the state machine based on current state
     switch (state.type) {
-      case 'none': { 
+      case 'none': {
         const initPromise = initThreadPool();
         state = { type: 'initializing', initPromise };
         break;
       }
       case 'initializing':
-      case 'running': 
+      case 'running':
         break;
       case 'exiting': {
         // if pool is tearing down but a new caller arrives,
@@ -46,7 +48,8 @@ function WithThreadPool({ initThreadPool, exitThreadPool }) {
 
     let result;
     try {
-      // run the user's function with the pool available
+      console.log('running with thread pool, current threadId:', threadId);
+      // run the user's function with the pool available 
       result = await run();
     } finally {
       // caller is done
@@ -73,7 +76,7 @@ function WithThreadPool({ initThreadPool, exitThreadPool }) {
   };
 }
 
-const workers = { numWorkers: undefined};
+const workers = { numWorkers: undefined };
 function setNumberOfWorkers(numWorkers) {
   workers.numWorkers = numWorkers;
 }
