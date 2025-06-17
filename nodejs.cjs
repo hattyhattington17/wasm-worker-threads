@@ -1,6 +1,6 @@
-const { withThreadPool, workers } = require('./node-backend.cjs');
+const { runInThreadPool, workers } = require('./node-backend.cjs');
 
-withThreadPool(() => {
+runInThreadPool(() => {
     console.log("running greet in threadpool");
     const { greet } = require("./pkg/blog_demo");
     try {

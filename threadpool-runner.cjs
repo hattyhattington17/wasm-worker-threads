@@ -10,7 +10,7 @@ const { threadId } = require('worker_threads');
  *        lifecycle methods for the WASM thread pool
  * @returns {function(run: Function): Promise<any>} withThreadPool runner
  */
-function WithThreadPool({ initThreadPool, exitThreadPool }) {
+function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
   // current state of the thread-pool lifecycle
   let state = { type: 'none' };
   // number of nested callers still using the pool
@@ -81,4 +81,4 @@ function setNumberOfWorkers(numWorkers) {
   workers.numWorkers = numWorkers;
 }
 
-module.exports = { workers, setNumberOfWorkers, WithThreadPool };
+module.exports = { workers, setNumberOfWorkers, CreateThreadPoolRunner };

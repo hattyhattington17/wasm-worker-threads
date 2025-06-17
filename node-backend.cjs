@@ -2,21 +2,12 @@ const { isMainThread, parentPort, workerData, Worker, threadId } = require('work
 const os = require('os');
 const path = require('path');
 const wasm = require('./pkg/blog_demo.js');
-const { WithThreadPool, workers } = require('./workers.cjs');
+const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
 
-
-// enable postmessages from wasm
-globalThis.postMessage = (msg) => {
-  if (!isMainThread && parentPort) {
-    parentPort.postMessage({
-      type: 'wasm_bindgen_worker_debug',
-      message: `threadId ${threadId} posted: ${msg}`,
-    });
-  } else {
-    console.warn('postMessage called outside of worker thread:', msg);
-  }
-};
-
+/**
+ * 
+ * @param {string} msg - message posted from the worker
+ */
 function onWorkerDebugMessage(msg) {
   console.debug(`[Message from worker]`, msg);
 }
@@ -24,35 +15,13 @@ function onWorkerDebugMessage(msg) {
 // tracks state of worker readiness
 let workersReadyResolve, workersReady;
 
-if (!isMainThread) {
-  // if this file is being run from a worker
-  // notify main thread that this worker is ready
-  parentPort.postMessage({ type: 'wasm_bindgen_worker_ready' });
-  // hook into Rayon’s pool: receive the ThreadBuilder pointer and invoke its run() method
-  // this starts a run loop that will process tasks from the WASM thread pool, the thread is taken over from wasm after this, no more JS runs
-  try {
-    // receiver is a raw pointer to a Rayon ThreadBuilder in Wasm memory
-    wasm.wbg_rayon_start_worker(workerData.receiver);
-  } catch (e) {
-    console.log(`Worker thread ${threadId} panicked`);
-  }
-  console.log(`Worker ${threadId} is exi`);
-}
-
-// init the wasm powered thread pool
+/**
+ * Initialize the Wasm thread pool
+ */
 async function initThreadPool() {
-  // only init the thread pool on the main thread
-  if (!isMainThread) return;
-
-  // create a promise that resolves when workers are ready
   workersReady = new Promise((resolve) => (workersReadyResolve = resolve));
-
-  // determine how many threads to spawn (leave one for the main thread)
   const threadCount = Math.max(1, (workers.numWorkers ?? (os.availableParallelism?.() ?? 1) - 1));
-
-  // call into WASM to set up the pool, passing this file's name so workers can re-import it
-  // this will eventually call startWorkers to spawn the worker threads
-  await wasm.initThreadPool(threadCount, __filename);
+  await wasm.initThreadPool(threadCount);
 
   // wait until startWorkers signals readiness
   await workersReady;
@@ -60,7 +29,8 @@ async function initThreadPool() {
 }
 
 /**
- * Tear down the WASM thread pool. Only on the main thread.
+ * tear down wasm thread pool
+ * called by createThreadPoolRunner when pool is no longer needed
  */
 async function exitThreadPool() {
   if (!isMainThread) return;
@@ -77,13 +47,12 @@ let wasmWorkers = [];
  * @param {WebAssembly.Memory} memory - shared memory instance
  * @param {{ numThreads(): number, receiver(): any, build(): void }} builder - builder object
  */
-async function startWorkers(src, memory, builder) {
+async function startWorkers(memory, builder) {
+  const workerPath = path.resolve(__dirname, './node-worker.cjs');
   wasmWorkers = [];
-
-  // launch the requested number of workers
   await Promise.all(
     Array.from({ length: builder.numThreads() }, () => {
-      const worker = new Worker(src, {
+      const worker = new Worker(workerPath, {
         workerData: { memory, receiver: builder.receiver() },
       });
       wasmWorkers.push(worker);
@@ -95,7 +64,6 @@ async function startWorkers(src, memory, builder) {
           // listen for debug messages sent from the worker
           if (data.type === 'wasm_bindgen_worker_debug') {
             onWorkerDebugMessage(data.message);
-            return;
           }
 
           // listen for worker to send ready signal
@@ -111,7 +79,7 @@ async function startWorkers(src, memory, builder) {
   // once all workers are ready, build the threadpool
   builder.build();
 
-  // notify initThreadPool that workers are up
+  // notify initThreadPool that workers are ready
   workersReadyResolve();
 }
 
@@ -125,7 +93,7 @@ async function terminateWorkers() {
 }
 
 // create withThreadPool wrapper by passing our threadpool init and exit code into the threadpool manager 
-exports.withThreadPool = WithThreadPool({ initThreadPool, exitThreadPool });
+exports.runInThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
 exports.wasm = wasm;
 
 // make these functions globally available to the WASM threads

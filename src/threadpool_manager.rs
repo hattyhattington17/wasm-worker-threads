@@ -1,5 +1,4 @@
-use crate::log;
-use js_sys::JsString;
+use crate::log; 
 use js_sys::Promise;
 use spmc::{channel, Receiver, Sender};
 use wasm_bindgen::prelude::*;
@@ -16,8 +15,8 @@ where
     let pool = unsafe { THREAD_POOL.as_ref().unwrap() };
     pool.install(op)
 }
-
-/// builder to configure js worker threads
+ 
+/// builder wraps an spmc channel that sends rayon threadbuilder instances to each worker
 #[wasm_bindgen]
 pub struct PoolBuilder {
     num_threads: usize,
@@ -29,7 +28,7 @@ pub struct PoolBuilder {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = startWorkers)]
-    fn start_workers(module: JsString, memory: JsValue, builder: PoolBuilder) -> Promise;
+    fn start_workers(memory: JsValue, builder: PoolBuilder) -> Promise;
 
     #[wasm_bindgen(js_name = terminateWorkers)]
     fn terminate_workers() -> Promise;
@@ -83,14 +82,10 @@ impl PoolBuilder {
 
 /// js entry point to init the threadpool and spawn workers with the builder
 #[wasm_bindgen(js_name = initThreadPool)]
-pub fn init_thread_pool(num_threads: usize, worker_source: JsString) -> Promise {
+pub fn init_thread_pool(num_threads: usize) -> Promise {
     log("rust: init_thread_pool in nodejs");
     // calls into js to start the workers
-    start_workers(
-        worker_source,
-        wasm_bindgen::memory(),
-        PoolBuilder::new(num_threads),
-    )
+    start_workers(wasm_bindgen::memory(), PoolBuilder::new(num_threads))
 }
 
 /// terminate workers and clear the pool
@@ -110,6 +105,6 @@ where
     Receiver<rayon::ThreadBuilder>: Sync,
 {
     log("rust: wbg_rayon_start_worker");
-    let receiver = unsafe { &*receiver }; 
+    let receiver = unsafe { &*receiver };
     receiver.recv().unwrap_throw().run();
 }
