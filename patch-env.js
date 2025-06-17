@@ -2,9 +2,7 @@ const fs = require('fs/promises');
 const file = process.argv[2];
 
 (async () => {
-
     let src = await fs.readFile(file, 'utf8');
-
     src = src.replace(
         "imports['env'] = require('env');",
         `
@@ -24,7 +22,5 @@ if (isMainThread) {
 imports['env'] = env;
 `
     );
-
     await fs.writeFile(file, src, 'utf8');
-
-})()
+})();

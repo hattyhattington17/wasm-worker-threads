@@ -3,7 +3,7 @@ use js_sys::Promise;
 use spmc::{channel, Receiver, Sender};
 use wasm_bindgen::prelude::*;
 
-///  custom rayon threadpool
+/// rayon threadpool
 static mut THREAD_POOL: Option<rayon::ThreadPool> = None;
 
 /// run an operation in the pool
@@ -16,7 +16,7 @@ where
     pool.install(op)
 }
  
-/// builder wraps an spmc channel that sends rayon threadbuilder instances to each worker
+/// builder wraps an spmc channel that sends rayon ThreadBuilder instances to each worker
 #[wasm_bindgen]
 pub struct PoolBuilder {
     num_threads: usize,
@@ -24,22 +24,12 @@ pub struct PoolBuilder {
     receiver: Receiver<rayon::ThreadBuilder>,
 }
 
-///  FFI bindings to JS functions that spawn and terminate workers
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_name = startWorkers)]
-    fn start_workers(memory: JsValue, builder: PoolBuilder) -> Promise;
-
-    #[wasm_bindgen(js_name = terminateWorkers)]
-    fn terminate_workers() -> Promise;
-}
-
 /// used by JS to tell the wasm module how many threads to spawn
 /// creates spmc channel to hand each spawned worker its rayon ThreadBuilder
 /// after that, Rayon work-stealing queues handle task scheduling and cross-thread communication internally
 #[wasm_bindgen]
 impl PoolBuilder {
-    /// create new PoolBuilder for fixed number of threads, create spmc channel to communicate ThreadBuilders to processes
+    /// Create spmc channel to communicate ThreadBuilders to processes
     fn new(num_threads: usize) -> Self {
         let (sender, receiver) = channel();
         Self {
@@ -48,8 +38,8 @@ impl PoolBuilder {
             receiver,
         }
     }
-
-    /// expose ability to set number of threads to js
+    
+    /// expose number of threads to js
     #[wasm_bindgen(js_name = numThreads)]
     pub fn num_threads(&self) -> usize {
         self.num_threads
@@ -59,10 +49,8 @@ impl PoolBuilder {
     pub fn receiver(&self) -> *const Receiver<rayon::ThreadBuilder> {
         &self.receiver
     }
-
-    /// create a rayon thread pool with the specified number of threads
-    /// for each spawned handler, use the smpc channel sender to send the associated ThreadBuilder
-    /// the worker will receive a pointer to the receiver and call `run` on the ThreadBuilder
+ 
+    /// Build rayon pool and send each ThreadBuilder over spmc channel
     pub fn build(&mut self) {
         unsafe {
             THREAD_POOL = Some(
@@ -80,15 +68,26 @@ impl PoolBuilder {
     }
 }
 
-/// js entry point to init the threadpool and spawn workers with the builder
+
+/// FFI bindings to JS functions that spawn and terminate workers
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = startWorkers)]
+    fn start_workers(memory: JsValue, builder: PoolBuilder) -> Promise;
+
+    #[wasm_bindgen(js_name = terminateWorkers)]
+    fn terminate_workers() -> Promise;
+}
+
+/// called by JS to init the threadpool and spawn workers with the builder
 #[wasm_bindgen(js_name = initThreadPool)]
 pub fn init_thread_pool(num_threads: usize) -> Promise {
-    log("rust: init_thread_pool in nodejs");
+    log("rust: init_thread_pool");
     // calls into js to start the workers
     start_workers(wasm_bindgen::memory(), PoolBuilder::new(num_threads))
 }
 
-/// terminate workers and clear the pool
+/// called by JS to terminate workers and clear the pool when it is no longer needed
 #[wasm_bindgen(js_name = exitThreadPool)]
 pub fn exit_thread_pool() -> Promise {
     unsafe {

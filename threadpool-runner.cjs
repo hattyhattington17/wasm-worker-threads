@@ -1,5 +1,3 @@
-const { threadId } = require('worker_threads');
-
 /**
  * Wraps a function so it runs with a WebAssembly thread pool:
  *  - makes sure initThreadpool is called before the wrapped function is executed
@@ -11,7 +9,6 @@ const { threadId } = require('worker_threads');
  * @returns {function(run: Function): Promise<any>} withThreadPool runner
  */
 function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
-  // current state of the thread-pool lifecycle
   let state = { type: 'none' };
   // number of nested callers still using the pool
   let isNeededBy = 0;
@@ -19,8 +16,6 @@ function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
   return async function withThreadPool(run) {
     // mark that someone needs the pool
     isNeededBy++;
-
-    // drive the state machine based on current state
     switch (state.type) {
       case 'none': {
         const initPromise = initThreadPool();
@@ -31,31 +26,24 @@ function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
       case 'running':
         break;
       case 'exiting': {
-        // if pool is tearing down but a new caller arrives,
-        // chain exit -> init to restart cleanly
+        // if another call runs during teardown, wait for exit then reinitialize the pool
         const initPromise = state.exitPromise.then(initThreadPool);
         state = { type: 'initializing', initPromise };
         break;
       }
     }
 
-    // wait for initialization if in progress
     if (state.type === 'initializing') {
       await state.initPromise;
     }
-    // mark pool as available
     state = { type: 'running' };
 
     let result;
     try {
-      console.log('running with thread pool, current threadId:', threadId);
       // run the user's function with the pool available 
-      result = await run();
+      await run();
     } finally {
-      // caller is done
       isNeededBy--;
-
-      // sanity check
       if (state.type !== 'running') {
         throw new Error('bug in ThreadPool state machine');
       }
@@ -71,7 +59,6 @@ function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
         }
       }
     }
-
     return result;
   };
 }

@@ -8,12 +8,14 @@ const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
  * 
  * @param {string} msg - message posted from the worker
  */
-function onWorkerDebugMessage(msg) {
-  console.debug(`[Message from worker]`, msg);
+function logWorkerDebug(msg) {
+  console.debug(`[Worker]`, msg);
 }
 
 // tracks state of worker readiness
 let workersReadyResolve, workersReady;
+/** @type {Worker[]} currently running worker instances */
+let wasmWorkers = [];
 
 /**
  * Initialize the Wasm thread pool
@@ -28,6 +30,7 @@ async function initThreadPool() {
   workersReady = undefined;
 }
 
+
 /**
  * tear down wasm thread pool
  * called by createThreadPoolRunner when pool is no longer needed
@@ -37,8 +40,7 @@ async function exitThreadPool() {
   await wasm.exitThreadPool();
 }
 
-/** @type {Worker[]} currently running worker instances */
-let wasmWorkers = [];
+// ---------- called from Rust via wasm-bindgen -------------------------------
 
 /**
  * Spawn worker threads, wait for each to be ready, and then start the WASM builder.
@@ -63,7 +65,7 @@ async function startWorkers(memory, builder) {
         worker.on('message', (data) => {
           // listen for debug messages sent from the worker
           if (data.type === 'wasm_bindgen_worker_debug') {
-            onWorkerDebugMessage(data.message);
+            logWorkerDebug(data.message);
           }
 
           // listen for worker to send ready signal
@@ -91,11 +93,10 @@ async function terminateWorkers() {
     wasmWorkers = undefined;
   });
 }
-
-// create withThreadPool wrapper by passing our threadpool init and exit code into the threadpool manager 
-exports.runInThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
-exports.wasm = wasm;
-
-// make these functions globally available to the WASM threads
+// globals - callable by Wasm
 global.startWorkers = startWorkers;
 global.terminateWorkers = terminateWorkers;
+
+// expose thread pool runner for application
+exports.runInThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
+
