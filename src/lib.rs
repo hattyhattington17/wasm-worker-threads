@@ -1,10 +1,12 @@
 mod threadpool_manager;
 
 use console_error_panic_hook;
+use js_sys::Promise;
 use rayon::current_thread_index;
 use rayon::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::future_to_promise;
 
 #[wasm_bindgen]
 extern "C" {
@@ -33,12 +35,22 @@ pub fn multithreaded_sum() {
     log(&format!("Result {:?}", x));
 }
 
+#[wasm_bindgen(js_name = multithreadedSumAsync)]
+pub fn multithreaded_sum_async() -> Promise {
+    future_to_promise(async {
+        // Run sum_mapped inside Rayon thread pool (still synchronous from Rust's POV)
+        let result = crate::threadpool_manager::run_in_pool(|| sum_mapped(vec![1, 2, 3]));
+        Ok(JsValue::from(result))
+    })
+}
+
 pub fn sum_mapped(inputs: Vec<i32>) -> i32 {
     inputs.into_par_iter().map(process_number).sum()
 }
 
 fn process_number(n: i32) -> i32 {
     let idx = current_thread_index().unwrap_or(0);
-     post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
-     n
+    post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
+    // panic!("panic in thread {}", idx);
+    n
 }
