@@ -1,4 +1,4 @@
-use crate::log; 
+use crate::log;
 use js_sys::Promise;
 use spmc::{channel, Receiver, Sender};
 use wasm_bindgen::prelude::*;
@@ -15,7 +15,7 @@ where
     let pool = unsafe { THREAD_POOL.as_ref().unwrap() };
     pool.install(op)
 }
- 
+
 /// builder wraps an spmc channel that sends rayon ThreadBuilder instances to each worker
 #[wasm_bindgen]
 pub struct PoolBuilder {
@@ -38,7 +38,7 @@ impl PoolBuilder {
             receiver,
         }
     }
-    
+
     /// expose number of threads to js
     #[wasm_bindgen(js_name = numThreads)]
     pub fn num_threads(&self) -> usize {
@@ -49,7 +49,7 @@ impl PoolBuilder {
     pub fn receiver(&self) -> *const Receiver<rayon::ThreadBuilder> {
         &self.receiver
     }
- 
+
     /// Build rayon pool and send each ThreadBuilder over spmc channel
     pub fn build(&mut self) {
         unsafe {
@@ -67,7 +67,6 @@ impl PoolBuilder {
         }
     }
 }
-
 
 /// FFI bindings to JS functions that spawn and terminate workers
 #[wasm_bindgen]
@@ -103,7 +102,8 @@ pub fn wbg_rayon_start_worker(receiver: *const Receiver<rayon::ThreadBuilder>)
 where
     Receiver<rayon::ThreadBuilder>: Sync,
 {
-    log("rust: wbg_rayon_start_worker");
+
+    log("rust: testing single log with panic");
     let receiver = unsafe { &*receiver };
     receiver.recv().unwrap_throw().run();
 }

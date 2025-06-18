@@ -9,7 +9,7 @@ const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
  * @param {string} msg - message posted from the worker
  */
 function logWorkerDebug(msg) {
-  console.debug(`[Worker]`, msg);
+  console.debug(`[Received from worker]`, msg);
 }
 
 // tracks state of worker readiness
@@ -36,7 +36,6 @@ async function initThreadPool() {
  * called by createThreadPoolRunner when pool is no longer needed
  */
 async function exitThreadPool() {
-  if (!isMainThread) return;
   await wasm.exitThreadPool();
 }
 
@@ -63,6 +62,7 @@ async function startWorkers(memory, builder) {
       return new Promise((resolve) => {
         let done = false;
         worker.on('message', (data) => {
+          // todo: events don't seem to run until after the worker has terminated
           // listen for debug messages sent from the worker
           if (data.type === 'wasm_bindgen_worker_debug') {
             logWorkerDebug(data.message);
@@ -87,6 +87,7 @@ async function startWorkers(memory, builder) {
 
 // kill the worker threads
 async function terminateWorkers() {
+  console.log("Terminating workers");
   return Promise.all(
     wasmWorkers.map((w) => w.terminate())
   ).then(() => {
@@ -98,5 +99,5 @@ global.startWorkers = startWorkers;
 global.terminateWorkers = terminateWorkers;
 
 // expose thread pool runner for application
-exports.runInThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
+exports.withThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
 

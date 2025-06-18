@@ -1,25 +1,32 @@
 /**
- * Wraps a function so it runs with a WebAssembly thread pool:
- *  - makes sure initThreadpool is called before the wrapped function is executed
- *  - Keeps track of concurrent callers
- *  - Tears down the pool when no one else needs it
+ * Creates a “withThreadPool” runner that ensures a WebAssembly thread-pool
+ * is initialised before the supplied callback runs and is torn down once
+ * no callers remain.
  *
- * @param {{ initThreadPool(): Promise, exitThreadPool(): Promise }}
- *        lifecycle methods for the WASM thread pool
- * @returns {function(run: Function): Promise<any>} withThreadPool runner
+ * @param {Object} lifecycle                             Lifecycle hooks
+ * @param {() => Promise<void>} lifecycle.initThreadPool  Initialise the pool
+ * @param {() => Promise<void>} lifecycle.exitThreadPool  Tear the pool down
+ *
+ * @template T
+ * @returns {(run: () => (T | Promise<T>)) => Promise<T>}
+ *          A wrapper that runs {@code run} while the pool is available.
  */
 function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
-  let state = { type: 'none' };
-  // number of nested callers still using the pool
-  let isNeededBy = 0;
-
+  // number of callers requesting the thread pool
+  let callers = 0;
+  let state = /** @type {{
+      type: 'none'
+        | 'initializing' & { initPromise?: Promise<void> }
+        | 'running'
+        | 'exiting' & { exitPromise?: Promise<void> }
+    }} */ ({ type: 'none' });
+     
   return async function withThreadPool(run) {
-    // mark that someone needs the pool
-    isNeededBy++;
+    // increment callers for every function passed to withThreadPool
+    callers++;
     switch (state.type) {
       case 'none': {
-        const initPromise = initThreadPool();
-        state = { type: 'initializing', initPromise };
+        state = { type: 'initializing', initPromise: initThreadPool() };
         break;
       }
       case 'initializing':
@@ -27,8 +34,7 @@ function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
         break;
       case 'exiting': {
         // if another call runs during teardown, wait for exit then reinitialize the pool
-        const initPromise = state.exitPromise.then(initThreadPool);
-        state = { type: 'initializing', initPromise };
+        state = { type: 'initializing', initPromise: state.exitPromise.then(initThreadPool) };
         break;
       }
     }
@@ -43,17 +49,15 @@ function CreateThreadPoolRunner({ initThreadPool, exitThreadPool }) {
       // run the user's function with the pool available 
       await run();
     } finally {
-      isNeededBy--;
+      callers--;
       if (state.type !== 'running') {
         throw new Error('bug in ThreadPool state machine');
       }
 
       // if no more callers, tear down the pool
-      if (isNeededBy < 1) {
-        const exitPromise = exitThreadPool();
-        state = { type: 'exiting', exitPromise };
-
-        await exitPromise;
+      if (callers < 1) {
+        state = { type: 'exiting', exitPromise: exitThreadPool() };
+        await state.exitPromise;
         if (state.type === 'exiting') {
           state = { type: 'none' };
         }

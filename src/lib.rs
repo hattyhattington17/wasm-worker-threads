@@ -6,7 +6,6 @@ use rayon::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
-
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = postMessage)]
@@ -41,8 +40,8 @@ pub fn sum_mapped(inputs: Vec<i32>) -> i32 {
 
 fn process_number(n: i32) -> i32 {
     let idx = current_thread_index().unwrap_or(0);
-    post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
-    // panic!("panic on background thread");
+    // log("why is this logging to the main thread when there is no panic?");
+    // post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
+    panic!("panic on background thread");
     n
 }
-

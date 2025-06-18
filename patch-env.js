@@ -9,7 +9,7 @@ const file = process.argv[2];
 let { isMainThread, workerData } = require('worker_threads');
 let env = {};
 if (isMainThread) {
-  console.log("initializing linear memory");
+  console.log("Initializing linear memory on main thread");
   env.memory = new WebAssembly.Memory({
     initial: 20,
     maximum: 10553,
