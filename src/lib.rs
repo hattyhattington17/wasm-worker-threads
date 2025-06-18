@@ -28,7 +28,6 @@ pub fn main_js() {
 }
 #[wasm_bindgen(js_name = multithreadedSum)]
 pub fn multithreaded_sum() {
-    // panic!("panic on main thread");
     // execute sum_mapped in the threadpool
     let x = threadpool_manager::run_in_pool(|| sum_mapped(vec![1, 2, 3]));
     log(&format!("Result {:?}", x));
@@ -40,8 +39,6 @@ pub fn sum_mapped(inputs: Vec<i32>) -> i32 {
 
 fn process_number(n: i32) -> i32 {
     let idx = current_thread_index().unwrap_or(0);
-    // log("why is this logging to the main thread when there is no panic?");
-    // post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
-    panic!("panic on background thread");
-    n
+     post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
+     n
 }

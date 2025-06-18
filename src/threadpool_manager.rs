@@ -81,8 +81,7 @@ extern "C" {
 /// called by JS to init the threadpool and spawn workers with the builder
 #[wasm_bindgen(js_name = initThreadPool)]
 pub fn init_thread_pool(num_threads: usize) -> Promise {
-    log("rust: init_thread_pool");
-    // calls into js to start the workers
+     // calls into js to start the workers
     start_workers(wasm_bindgen::memory(), PoolBuilder::new(num_threads))
 }
 
@@ -102,8 +101,6 @@ pub fn wbg_rayon_start_worker(receiver: *const Receiver<rayon::ThreadBuilder>)
 where
     Receiver<rayon::ThreadBuilder>: Sync,
 {
-
-    log("rust: testing single log with panic");
     let receiver = unsafe { &*receiver };
     receiver.recv().unwrap_throw().run();
 }
