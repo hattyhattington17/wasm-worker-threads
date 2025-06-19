@@ -8,6 +8,7 @@ const file = process.argv[2];
         `
 let { isMainThread, workerData } = require('worker_threads');
 let env = {};
+// initialize shared memory on the main thread, then pass it to workers
 if (isMainThread) {
   console.log("Initializing linear memory on main thread");
   env.memory = new WebAssembly.Memory({
