@@ -21,3 +21,7 @@ dwarf-debug-info = true
 
 [profile.dev]
 debug = true
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
