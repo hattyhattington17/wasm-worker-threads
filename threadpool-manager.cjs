@@ -1,15 +1,12 @@
-/**
- * Simple manager that runs WASM in a monitored worker process
- */
-
 const { Worker } = require('worker_threads');
 const path = require('path');
 
+// todo: implement postmessage handling
+
 class ThreadpoolManager {
     constructor(options = {}) {
-        this.timeout = options.timeout || 10000;
-        this.heartbeatTimeout = options.heartbeatTimeout || 5000;
-
+        this.timeout = options.timeout || 5000;
+        // todo: store addresses of rayon workers, then listen for postmessages
         this.worker = null;
         this.workerReady = false;
         this.pendingRequest = null;
@@ -26,64 +23,50 @@ class ThreadpoolManager {
         }
 
         return new Promise((resolve, reject) => {
-            let timeoutHandle;
-
-            // Set up timeout
-            timeoutHandle = setTimeout(() => {
-                reject(new Error(`Function '${functionName}' timed out - worker may have panicked`));
-            }, this.timeout);
-
-            // Store request handler
+            // Store request promise, later it will resolve with the result of the task
             this.pendingRequest = {
                 resolve: (result) => {
-                    clearTimeout(timeoutHandle);
                     this.pendingRequest = null;
                     resolve(result);
                 },
                 reject: (error) => {
-                    clearTimeout(timeoutHandle);
                     this.pendingRequest = null;
                     reject(error);
                 }
             };
 
             // Send request to worker
-            this.worker.postMessage({
-                type: 'execute',
-                functionName,
-                args
-            });
+            this.worker.postMessage({ type: 'execute', functionName, args });
         });
     }
 
     /**
-     * Start the ThreadpoolManager worker which is responsible for spawning the threadpool
+     * Start the ThreadpoolManagerWorker which is responsible for spawning the threadpool
      */
     async initWorker() {
-        console.log('Starting ThreadpoolManager worker...');
+        console.log('Starting ThreadpoolManagerWorker...');
         try {
-            this.worker = new Worker(path.join(__dirname, 'isolated-threadpool-worker.cjs'));
-            console.log(`created worker at ${path.join(__dirname, 'isolated-threadpool-worker.cjs')}`);
+            this.worker = new Worker(path.join(__dirname, 'threadpool-manager-worker.cjs'));
         } catch (error) {
             console.error('Failed to create worker:', error);
             throw error;
         }
 
-        // Listen for events from the ThreadpoolManager Worker
+        // Listen for events from the ThreadpoolManagerWorker
         this.worker.on('message', (msg) => {
-            console.log('ThreadpoolManager Worker message :', msg.type);
+            console.log('ThreadpoolManagerWorker message :', msg.type);
             this.handleWorkerMessage(msg);
         });
 
         this.worker.on('error', (error) => {
-            console.error('ThreadpoolManager Worker error:', error);
+            console.error('ThreadpoolManagerWorker error:', error);
             this.handleWorkerFailure(error.message);
         });
 
         this.worker.on('exit', (code) => {
-            console.error(`ThreadpoolManager Worker exited with code ${code}`);
+            console.error(`ThreadpoolManagerWorker exited with code ${code}`);
             if (code !== 0) {
-                this.handleWorkerFailure(`ThreadpoolManager Worker crashed with code ${code}`);
+                this.handleWorkerFailure(`ThreadpoolManagerWorker crashed with code ${code}`);
             }
         });
 
@@ -93,20 +76,21 @@ class ThreadpoolManager {
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
 
-        console.log('Worker ready');
+        console.log('Worker ready, monitoring for heartbeats');
     }
 
     /**
      * Handle messages from worker
      */
     handleWorkerMessage(msg) {
+        console.log(`ThreadpoolManagerWorker sent message: ${JSON.stringify(msg)}`)
         switch (msg.type) {
             case 'ready':
-                console.log('Worker signaled ready');
                 this.workerReady = true;
                 break;
 
             case 'result':
+                // todo: this needs to handle concurrent tasks
                 if (this.pendingRequest) {
                     if (msg.success) {
                         this.pendingRequest.resolve(msg.result);
@@ -115,7 +99,6 @@ class ThreadpoolManager {
                     }
                 }
                 break;
-
             case 'heartbeat':
                 this.lastHeartbeat = msg.timestamp;
                 break;
@@ -126,15 +109,13 @@ class ThreadpoolManager {
      * Handle worker failure
      */
     handleWorkerFailure(error) {
-        this.workerReady = false;
-
         // Reject pending request
         if (this.pendingRequest) {
             this.pendingRequest.reject(new Error(`Worker failed: ${error}`));
             this.pendingRequest = null;
         }
-
-        // Stop heartbeat monitoring
+        // todo: implement recovery
+        this.workerReady = false;
         this.stopHeartbeatMonitoring();
     }
 
@@ -142,21 +123,18 @@ class ThreadpoolManager {
      * Wait for worker to signal readiness
      */
     waitForWorkerReady() {
-        console.log("Waiting for ThreadpoolManager Worker ready message");
+        console.log("Waiting for ThreadpoolManagerWorker ready message");
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Worker failed to initialize'));
-            }, 50000);
-
+            // Error if the worker still hasn't signaled readiness after 5 seconds
+            const timeout = setTimeout(() => reject(new Error('Worker failed to initialize')), 5000);
             const checkReady = () => {
                 if (this.workerReady) {
                     clearTimeout(timeout);
+                    clearInterval(workerReadyPoll);
                     resolve();
-                } else {
-                    setTimeout(checkReady, 100);
                 }
             };
-            checkReady();
+            let workerReadyPoll = setInterval(checkReady, 100);
         });
     }
 
@@ -168,10 +146,9 @@ class ThreadpoolManager {
 
         this.heartbeatChecker = setInterval(() => {
             const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeat;
-
-            if (timeSinceLastHeartbeat > this.heartbeatTimeout) {
-                console.error(`Heartbeat timeout - worker is hung`);
-                this.handleWorkerFailure('Heartbeat timeout');
+            if (timeSinceLastHeartbeat > this.timeout) {
+                console.error(`ThreadpoolManager detected heartbeat timeout`);
+                this.handleWorkerFailure('Heartbeat timeout failure');
             }
         }, 1000);
     }

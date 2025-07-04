@@ -1,4 +1,3 @@
-use crate::log;
 use js_sys::Promise;
 use spmc::{channel, Receiver, Sender};
 use wasm_bindgen::prelude::*;

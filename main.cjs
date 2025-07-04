@@ -2,8 +2,7 @@ const { ThreadpoolManager } = require('./threadpool-manager.cjs');
 
 async function main() {
     const manager = new ThreadpoolManager({
-        timeout: 5000,
-        heartbeatTimeout: 2000
+        timeout: 5000
     });
 
     await manager.initWorker();
