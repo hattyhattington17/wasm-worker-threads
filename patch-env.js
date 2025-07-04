@@ -6,10 +6,10 @@ const file = process.argv[2];
     src = src.replace(
         "imports['env'] = require('env');",
         `
-let { isMainThread, workerData } = require('worker_threads');
+let { isMainThread, workerData, threadId } = require('worker_threads');
 let env = {};
-if (isMainThread) {
-  console.log("Initializing linear memory on main thread");
+if (+process.env.workerManagerThread === threadId) {
+  console.log("Initializing linear memory on thread " + threadId);
   env.memory = new WebAssembly.Memory({
     initial: 20,
     maximum: 10553,

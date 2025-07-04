@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const wasm = require('./pkg/blog_demo.js');
 const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
-
+ 
 /**
  * 
  * @param {string} msg - message posted from the worker

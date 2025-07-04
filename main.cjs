@@ -1,15 +1,19 @@
-const { withThreadPool: runInThreadPool } = require('./node-backend.cjs');
+const { ThreadpoolManager } = require('./threadpool-manager.cjs');
 
-// the callback while the rayon threadpool is available
-runInThreadPool(async () => {
-    console.log("running multithreadedSum with threadpool");
-    const { multithreadedSum } = require("./pkg/blog_demo");
+async function main() {
+    const manager = new ThreadpoolManager({
+        timeout: 5000,
+        heartbeatTimeout: 2000
+    });
+
+    await manager.initWorker();
     try {
-        await multithreadedSum();
-        console.log("Executed multithreadedSum with threadpool");
+        const result = await manager.execute('multithreadedSum', []);
+    } catch (error) {
+        console.error(`Failed to run function with ThreadpoolManager: ${error.message}`);
+    } finally {
+        await manager.shutdown();
     }
-    catch (e) {
-        console.log("Failed to execute multithreadedSum with threadpool");
-        console.error(JSON.stringify(e, null, 2));
-    }
-}) 
+}
+
+main().catch(console.error);
