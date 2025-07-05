@@ -54,8 +54,7 @@ class ThreadpoolManager {
 
         // Listen for events from the ThreadpoolManagerWorker
         this.worker.on('message', (msg) => {
-            console.log('ThreadpoolManagerWorker message :', msg.type);
-            this.handleWorkerMessage(msg);
+             this.handleWorkerMessage(msg);
         });
 
         this.worker.on('error', (error) => {
@@ -72,6 +71,16 @@ class ThreadpoolManager {
 
         // Wait for worker to be ready
         await this.waitForWorkerReady();
+
+        // send message channel to worker
+        const subChannel = new MessageChannel();
+        this.worker.postMessage({ type: 'mainProcessChannel', mainProcessChannel: subChannel.port1 }, [subChannel.port1]);
+        subChannel.port2.on('message', (subchannelMsg) => {
+            console.log('ThreadpoolManager received message via subchannel', subchannelMsg);
+        });
+        subChannel.port2.on('close', (subchannelMsg) => {
+            console.log('ThreadpoolManager received message via subchannel', subchannelMsg);
+        });
 
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();

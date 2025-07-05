@@ -3,7 +3,11 @@ const os = require('os');
 const path = require('path');
 const wasm = require('./pkg/blog_demo.js');
 const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
- 
+
+let mainProcessChannel = null;
+function setMainProcessChannel(channel) {
+  mainProcessChannel = channel;
+}
 /**
  * 
  * @param {string} msg - message posted from the worker
@@ -53,8 +57,12 @@ async function startWorkers(memory, builder) {
   wasmWorkers = [];
   await Promise.all(
     Array.from({ length: builder.numThreads() }, () => {
+
+      // todo: figure out how to clone the messageport and then transfer it to all workers. Right now we get 
+      //  DataCloneError: MessagePort in transfer list is already detached
       const worker = new Worker(workerPath, {
-        workerData: { memory, receiver: builder.receiver() },
+        workerData: { memory, receiver: builder.receiver(), mainProcessChannel },
+        transferList: [mainProcessChannel]
       });
       wasmWorkers.push(worker);
 
@@ -100,4 +108,4 @@ global.terminateWorkers = terminateWorkers;
 
 // expose thread pool runner for application
 exports.withThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
-
+exports.setMainProcessChannel = setMainProcessChannel;

@@ -1,11 +1,15 @@
 const { parentPort, workerData, threadId } = require('worker_threads');
 const wasm = require('./pkg/blog_demo.js');
 
+let mainProcessChannel = workerData.mainProcessChannel;
+if (!mainProcessChannel) {
+  throw Error("Main process channel not supplied");
+}
 // enable postmessages from wasm
 globalThis.postMessage = (msg) => {
   console.log(`JS worker thread ${threadId} sending postmessage: ${msg}`)
 
-  parentPort.postMessage({
+  mainProcessChannel.postMessage({
     type: 'wasm_bindgen_worker_debug',
     message: `${threadId}: ${msg}`,
   });
@@ -17,8 +21,8 @@ parentPort.postMessage({ type: 'wasm_bindgen_worker_ready' });
 try {
   // `receiver` is a raw pointer to a `rayon::ThreadBuilder`.
   // Calling `wbg_rayon_start_worker()` hands control to Rayon’s scheduler
-   wasm.wbg_rayon_start_worker(workerData.receiver);
- } catch (e) {
+  wasm.wbg_rayon_start_worker(workerData.receiver);
+} catch (e) {
   console.log(`Worker thread ${threadId} panicked`);
 }
 // in the success case, this never runs. The worker is closed by

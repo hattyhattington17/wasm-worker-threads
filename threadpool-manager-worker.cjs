@@ -9,8 +9,6 @@ const { parentPort, threadId } = require('worker_threads');
 // this must be set before loading the wasm module
 process.env.workerManagerThread = threadId;
 
-const { withThreadPool } = require('./node-backend.cjs');
-const wasmModule = require('./pkg/blog_demo.js');
 
 // Exit if not running as a worker
 if (!parentPort) {
@@ -25,10 +23,20 @@ const heartbeatInterval = setInterval(() => {
     parentPort.postMessage({ type: 'heartbeat', timestamp: Date.now() });
 }, 1000);
 
+let mainProcessChannel = null;
+
 // handle requests to execute tasks with the threadpool
 parentPort.on('message', async (msg) => {
-    console.log(`ThreadpoolManagerWorker received message from ThreadpoolManager (main process): ${msg}`);
-    if (msg.type === 'execute') {
+    console.log(`ThreadpoolManagerWorker received message from ThreadpoolManager (main process): ${JSON.stringify(msg)}`);
+
+    const { withThreadPool, setMainProcessChannel } = require('./node-backend.cjs');
+    const wasmModule = require('./pkg/blog_demo.js');
+
+    if (msg.type === 'mainProcessChannel') {
+        mainProcessChannel = msg.mainProcessChannel;
+        mainProcessChannel.postMessage("Received mainProcessChannel in ThreadpoolMaangerWorker");
+        setMainProcessChannel(mainProcessChannel);
+    } else if (msg.type === 'execute') {
         try {
             const { functionName, args } = msg;
             await withThreadPool(async () => {
