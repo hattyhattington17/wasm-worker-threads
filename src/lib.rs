@@ -37,11 +37,11 @@ pub fn sum_mapped(inputs: Vec<i32>) -> i32 {
     inputs.into_par_iter().map(process_number).sum()
 }
 
-fn process_number(n: i32) -> i32 {
+fn process_number(n: i32) -> i32 { 
     let idx = current_thread_index().unwrap_or(0);
     post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
-    // if n == 3 {
-    //     panic!("Simulated panic for testing");
-    // }
+    if n == 3 {
+        panic!("Simulated panic for testing");
+    }
     n
 }

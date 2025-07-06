@@ -23,22 +23,24 @@ const heartbeatInterval = setInterval(() => {
     parentPort.postMessage({ type: 'heartbeat', timestamp: Date.now() });
 }, 1000);
 
-let mainProcessChannel = null;
+let workerPorts = [];
+let numWorkers = 0;
 
 // handle requests to execute tasks with the threadpool
 parentPort.on('message', async (msg) => {
-    console.log(`ThreadpoolManagerWorker received message from ThreadpoolManager (main process): ${JSON.stringify(msg)}`);
+    console.log(`ThreadpoolManagerWorker received message from ThreadpoolManager (main process): ${msg.type}`);
 
-    const { withThreadPool, setMainProcessChannel } = require('./node-backend.cjs');
+    const { withThreadPool, setWorkerPorts } = require('./node-backend.cjs');
     const wasmModule = require('./pkg/blog_demo.js');
 
-    if (msg.type === 'mainProcessChannel') {
-        mainProcessChannel = msg.mainProcessChannel;
-        mainProcessChannel.postMessage("Received mainProcessChannel in ThreadpoolMaangerWorker");
-        setMainProcessChannel(mainProcessChannel);
+    if (msg.type === 'workerChannels') {
+        workerPorts = msg.ports;
+        numWorkers = msg.numWorkers;
+        console.log(`Received ${workerPorts.length} MessagePorts for worker threads`);
+        setWorkerPorts(workerPorts);
     } else if (msg.type === 'execute') {
+        const { requestId, functionName, args } = msg;
         try {
-            const { functionName, args } = msg;
             await withThreadPool(async () => {
                 // Get the function
                 const fn = wasmModule[functionName];
@@ -50,12 +52,18 @@ parentPort.on('message', async (msg) => {
                 // note: if a panic occurs on a background thread, this will silently hang
                 const result = fn(...args);
 
-                // Send result back to ThreadpoolManager
-                parentPort.postMessage({ type: 'result', success: true, result: result });
+                // Send result back to ThreadpoolManager with requestId
+                parentPort.postMessage({ 
+                    type: 'result', 
+                    requestId,
+                    success: true, 
+                    result: result 
+                });
             });
         } catch (error) {
             parentPort.postMessage({
                 type: 'result',
+                requestId,
                 success: false,
                 error: error.toString()
             });

@@ -1,5 +1,6 @@
-const { Worker } = require('worker_threads');
+const { Worker, MessageChannel } = require('worker_threads');
 const path = require('path');
+const os = require('os');
 
 // todo: implement postmessage handling
 
@@ -9,9 +10,14 @@ class ThreadpoolManager {
         // todo: store addresses of rayon workers, then listen for postmessages
         this.worker = null;
         this.workerReady = false;
-        this.pendingRequest = null;
+        this.pendingRequests = new Map(); // Map of requestId -> {resolve, reject}
+        this.nextRequestId = 1;
         this.lastHeartbeat = null;
         this.heartbeatChecker = null;
+        // Worker communication channels
+        this.workerChannels = [];
+        this.workerPorts = [];
+        this.numWorkers = options.numWorkers || Math.max(1, (os.availableParallelism?.() ?? 1) - 1);
     }
 
     /**
@@ -22,21 +28,28 @@ class ThreadpoolManager {
             throw new Error('Worker not ready');
         }
 
+        const requestId = this.nextRequestId++;
+        
         return new Promise((resolve, reject) => {
-            // Store request promise, later it will resolve with the result of the task
-            this.pendingRequest = {
+            // Store request promise with unique ID
+            this.pendingRequests.set(requestId, {
                 resolve: (result) => {
-                    this.pendingRequest = null;
+                    this.pendingRequests.delete(requestId);
                     resolve(result);
                 },
                 reject: (error) => {
-                    this.pendingRequest = null;
+                    this.pendingRequests.delete(requestId);
                     reject(error);
                 }
-            };
+            });
 
-            // Send request to worker
-            this.worker.postMessage({ type: 'execute', functionName, args });
+            // Send request to worker with unique ID
+            this.worker.postMessage({ 
+                type: 'execute', 
+                requestId,
+                functionName, 
+                args 
+            });
         });
     }
 
@@ -72,15 +85,36 @@ class ThreadpoolManager {
         // Wait for worker to be ready
         await this.waitForWorkerReady();
 
-        // send message channel to worker
-        const subChannel = new MessageChannel();
-        this.worker.postMessage({ type: 'mainProcessChannel', mainProcessChannel: subChannel.port1 }, [subChannel.port1]);
-        subChannel.port2.on('message', (subchannelMsg) => {
-            console.log('ThreadpoolManager received message via subchannel', subchannelMsg);
-        });
-        subChannel.port2.on('close', (subchannelMsg) => {
-            console.log('ThreadpoolManager received message via subchannel', subchannelMsg);
-        });
+        // Create MessageChannels for each worker thread
+        console.log(`Creating ${this.numWorkers} MessageChannels for worker threads`);
+        const port1Array = [];
+        
+        for (let i = 0; i < this.numWorkers; i++) {
+            const channel = new MessageChannel();
+            this.workerChannels.push(channel);
+            this.workerPorts.push(channel.port2);
+            port1Array.push(channel.port1);
+            
+            // Set up message handling for this worker
+            channel.port2.on('message', (msg) => {
+                console.log(`[Main Thread] Received from Worker ${i}:`, msg);
+                // Log all messages from Rust postMessage calls
+                if (typeof msg === 'string') {
+                    console.log(`[Worker ${i} Rust Message]:`, msg);
+                }
+            });
+            
+            channel.port2.on('error', (error) => {
+                console.error(`[Main Thread] Worker ${i} channel error:`, error);
+            });
+        }
+
+        // Send all port1 instances to ThreadpoolManagerWorker
+        this.worker.postMessage({ 
+            type: 'workerChannels', 
+            ports: port1Array,
+            numWorkers: this.numWorkers 
+        }, port1Array);
 
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
@@ -99,13 +133,16 @@ class ThreadpoolManager {
                 break;
 
             case 'result':
-                // todo: this needs to handle concurrent tasks
-                if (this.pendingRequest) {
+                // Handle concurrent tasks using requestId
+                const request = this.pendingRequests.get(msg.requestId);
+                if (request) {
                     if (msg.success) {
-                        this.pendingRequest.resolve(msg.result);
+                        request.resolve(msg.result);
                     } else {
-                        this.pendingRequest.reject(new Error(msg.error));
+                        request.reject(new Error(msg.error));
                     }
+                } else {
+                    console.warn(`Received result for unknown requestId: ${msg.requestId}`);
                 }
                 break;
             case 'heartbeat':
@@ -118,11 +155,12 @@ class ThreadpoolManager {
      * Handle worker failure
      */
     handleWorkerFailure(error) {
-        // Reject pending request
-        if (this.pendingRequest) {
-            this.pendingRequest.reject(new Error(`Worker failed: ${error}`));
-            this.pendingRequest = null;
+        // Reject all pending requests
+        for (const [requestId, request] of this.pendingRequests) {
+            request.reject(new Error(`Worker failed: ${error}`));
         }
+        this.pendingRequests.clear();
+        
         // todo: implement recovery
         this.workerReady = false;
         this.stopHeartbeatMonitoring();
@@ -177,6 +215,13 @@ class ThreadpoolManager {
      */
     async shutdown() {
         this.stopHeartbeatMonitoring();
+
+        // Close all worker channels
+        for (const port of this.workerPorts) {
+            port.close();
+        }
+        this.workerChannels = [];
+        this.workerPorts = [];
 
         if (this.worker) {
             await this.worker.terminate();

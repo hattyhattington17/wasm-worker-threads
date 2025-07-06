@@ -4,16 +4,17 @@ const path = require('path');
 const wasm = require('./pkg/blog_demo.js');
 const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
 
-let mainProcessChannel = null;
-function setMainProcessChannel(channel) {
-  mainProcessChannel = channel;
+let workerPorts = [];
+function setWorkerPorts(ports) {
+  workerPorts = ports;
 }
 /**
  * 
  * @param {string} msg - message posted from the worker
+ * @param {number} workerId - ID of the worker
  */
-function logWorkerDebug(msg) {
-  console.debug(`[Received from worker]`, msg);
+function logWorkerDebug(msg, workerId) {
+  console.debug(`[Received from worker ${workerId}]`, msg);
 }
 
 // tracks state of worker readiness
@@ -55,14 +56,25 @@ async function exitThreadPool() {
 async function startWorkers(memory, builder) {
   const workerPath = path.resolve(__dirname, './node-worker.cjs');
   wasmWorkers = [];
+  
+  // Ensure we have enough ports for all workers
+  if (workerPorts.length < builder.numThreads()) {
+    throw new Error(`Not enough MessagePorts: have ${workerPorts.length}, need ${builder.numThreads()}`);
+  }
+  
   await Promise.all(
-    Array.from({ length: builder.numThreads() }, () => {
-
-      // todo: figure out how to clone the messageport and then transfer it to all workers. Right now we get 
-      //  DataCloneError: MessagePort in transfer list is already detached
+    Array.from({ length: builder.numThreads() }, (_, index) => {
+      // Each worker gets its own dedicated MessagePort
+      const workerPort = workerPorts[index];
+      
       const worker = new Worker(workerPath, {
-        workerData: { memory, receiver: builder.receiver(), mainProcessChannel },
-        transferList: [mainProcessChannel]
+        workerData: { 
+          memory, 
+          receiver: builder.receiver(), 
+          mainThreadPort: workerPort,
+          workerId: index 
+        },
+        transferList: [workerPort]
       });
       wasmWorkers.push(worker);
 
@@ -70,15 +82,18 @@ async function startWorkers(memory, builder) {
       return new Promise((resolve) => {
         let done = false;
         worker.on('message', (data) => {
-          // todo: events don't seem to run until after the worker has terminated
+          // Note: These messages are from the worker thread initialization,
+          // not from postMessage calls which go through the MessagePort
+          
           // listen for debug messages sent from the worker
           if (data.type === 'wasm_bindgen_worker_debug') {
-            logWorkerDebug(data.message);
+            logWorkerDebug(data.message, index);
           }
 
           // listen for worker to send ready signal
           if (!done && data?.type === 'wasm_bindgen_worker_ready') {
             done = true;
+            console.log(`Worker ${index} is ready`);
             resolve(worker);
           }
         });
@@ -108,4 +123,4 @@ global.terminateWorkers = terminateWorkers;
 
 // expose thread pool runner for application
 exports.withThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
-exports.setMainProcessChannel = setMainProcessChannel;
+exports.setWorkerPorts = setWorkerPorts;
