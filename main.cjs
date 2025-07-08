@@ -8,6 +8,7 @@ async function main() {
     await manager.initWorker();
     try {
         const result = await manager.execute('multithreadedSum', []);
+        console.log(`Result from multithreadedSum: ${result}`);
     } catch (error) {
         console.error(`Failed to run function with ThreadpoolManager: ${error.message}`);
     } finally {

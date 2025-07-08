@@ -9,7 +9,7 @@ if (!mainThreadPort) {
   throw Error("Main thread port not supplied");
 }
 // Override global postMessage to send messages through the MessagePort to main thread
-globalThis.postMessage = (msg) => {
+globalThis.postMessageToMainThread = (msg) => {
   console.log(`Worker ${workerId} (thread ${threadId}) forwarding postMessage to main thread: ${msg}`);
   
   // Send directly to main thread through the dedicated MessagePort

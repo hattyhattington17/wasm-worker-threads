@@ -1,11 +1,13 @@
+// this file is analogous to rayon.rs in the SDK
+
 use js_sys::Promise;
 use spmc::{channel, Receiver, Sender};
 use wasm_bindgen::prelude::*;
 
-/// rayon threadpool
+/// Rayon ThreadPool
 static mut THREAD_POOL: Option<rayon::ThreadPool> = None;
 
-/// run an operation in the pool
+/// run an operation in the ThreadPool
 pub fn run_in_pool<OP, R>(op: OP) -> R
 where
     OP: FnOnce() -> R + Send,
@@ -14,8 +16,8 @@ where
     let pool = unsafe { THREAD_POOL.as_ref().unwrap() };
     pool.install(op)
 }
-
-/// builder wraps an spmc channel that sends rayon ThreadBuilder instances to each worker
+ 
+/// Wraps SPMC channel used to send Rayon ThreadBuilders to JS workers
 #[wasm_bindgen]
 pub struct PoolBuilder {
     num_threads: usize,
@@ -23,12 +25,12 @@ pub struct PoolBuilder {
     receiver: Receiver<rayon::ThreadBuilder>,
 }
 
-/// used by JS to tell the wasm module how many threads to spawn
-/// creates spmc channel to hand each spawned worker its rayon ThreadBuilder
+
+/// Creates SPMC channel to send Rayon ThreadBuilders to JS workers
 /// after that, Rayon work-stealing queues handle task scheduling and cross-thread communication internally
 #[wasm_bindgen]
 impl PoolBuilder {
-    /// Create spmc channel to communicate ThreadBuilders to processes
+    // allow JS to configure the number of threads to spawn
     fn new(num_threads: usize) -> Self {
         let (sender, receiver) = channel();
         Self {
@@ -38,25 +40,25 @@ impl PoolBuilder {
         }
     }
 
-    /// expose number of threads to js
+    /// expose setter for number of threads to JS
     #[wasm_bindgen(js_name = numThreads)]
     pub fn num_threads(&self) -> usize {
         self.num_threads
     }
 
-    /// expose a raw pointer to the smpc channel receiver to use on worker startup
+    /// expose a raw pointer to the SPMC channel receiver to use on worker startup
     pub fn receiver(&self) -> *const Receiver<rayon::ThreadBuilder> {
         &self.receiver
     }
 
-    /// Build rayon pool and send each ThreadBuilder over spmc channel
+    /// Build the Rayon pool and send each ThreadBuilder over the SPMC channel
     pub fn build(&mut self) {
         unsafe {
             THREAD_POOL = Some(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(self.num_threads)
                     .spawn_handler(move |thread| {
-                        // sends each threadbuilder over the channel to a worker
+                        // spawn Rayon threads by sending the ThreadBuilder over the SPMC channel to be processed by a JS worker
                         self.sender.send(thread).unwrap_throw();
                         Ok(())
                     })
@@ -67,21 +69,26 @@ impl PoolBuilder {
     }
 }
 
-/// FFI bindings to JS functions that spawn and terminate workers
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_name = startWorkers)]
-    fn start_workers(memory: JsValue, builder: PoolBuilder) -> Promise;
-
-    #[wasm_bindgen(js_name = terminateWorkers)]
-    fn terminate_workers() -> Promise;
-}
-
-/// called by JS to init the threadpool and spawn workers with the builder
+/// Entrypoint - Called by JS node-backend to initialize the thread pool with a specified number of threads 
 #[wasm_bindgen(js_name = initThreadPool)]
 pub fn init_thread_pool(num_threads: usize) -> Promise {
-     // calls into js to start the workers
+    // Create a PoolBuilder with an SPMC channel for distributing ThreadBuilders to workers.
+    // The PoolBuilder exposes a receiver pointer that JavaScript passes to each spawned worker.
+    // Each worker then calls wbg_rayon_start_worker with this receiver to join the thread pool.
     start_workers(wasm_bindgen::memory(), PoolBuilder::new(num_threads))
+}
+
+/// Called by a JS worker thread to join the Rayon ThreadPool
+#[wasm_bindgen]
+pub fn wbg_rayon_start_worker(receiver: *const Receiver<rayon::ThreadBuilder>)
+where
+    Receiver<rayon::ThreadBuilder>: Sync,
+{
+    // retrieve the SPMC receiver, then use it to receive a Rayon ThreadBuilder
+    let receiver = unsafe { &*receiver };
+                                                                    
+    // run the ThreadBuilder, this will continuously poll for tasks from Rayon's work-stealing queues and block until the pool is shut down
+    receiver.recv().unwrap_throw().run();
 }
 
 /// called by JS to terminate workers and clear the pool when it is no longer needed
@@ -94,12 +101,12 @@ pub fn exit_thread_pool() -> Promise {
     }
 }
 
-/// called by each spawned worker to hook into the rayon pool
+/// FFI bindings to JS functions that spawn and terminate workers
 #[wasm_bindgen]
-pub fn wbg_rayon_start_worker(receiver: *const Receiver<rayon::ThreadBuilder>)
-where
-    Receiver<rayon::ThreadBuilder>: Sync,
-{
-    let receiver = unsafe { &*receiver };
-    receiver.recv().unwrap_throw().run();
+extern "C" {
+    #[wasm_bindgen(js_name = startWorkers)]
+    fn start_workers(memory: JsValue, builder: PoolBuilder) -> Promise;
+
+    #[wasm_bindgen(js_name = terminateWorkers)]
+    fn terminate_workers() -> Promise;
 }
