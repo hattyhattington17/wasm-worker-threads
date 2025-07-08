@@ -1,3 +1,7 @@
+// patches the wasm-bindgen generated JS file to support shared WebAssembly memory in multithreaded nodejs project
+// the worker that manages the thread pool (threadpool-host.cjs) will create the shared memory, while other workers will receive it via workerData
+// process.env.threadPoolHostThreadId must be set to the threadId of the threadpool-host worker before loading the wasm module
+
 const fs = require('fs/promises');
 const file = process.argv[2];
 
@@ -8,7 +12,12 @@ const file = process.argv[2];
         `
 let { isMainThread, workerData, threadId } = require('worker_threads');
 let env = {};
-if (+process.env.workerManagerThread === threadId) {
+
+if (process.env.threadPoolHostThreadId === undefined) {
+  throw new Error("process.env.threadPoolHostThreadId must be set to the threadId of the worker that manages the thread pool");
+}
+
+if (+process.env.threadPoolHostThreadId === threadId) {
   console.log("Initializing linear memory on thread " + threadId);
   env.memory = new WebAssembly.Memory({
     initial: 20,

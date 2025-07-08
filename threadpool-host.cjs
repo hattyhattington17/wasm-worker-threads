@@ -1,13 +1,10 @@
-/**
- * Worker process that spawns the Wasm threadpool
- * ThreadpoolManager (main process) will terminate this worker if heartbeats stop
- */
-
+// worker process that spawns the Wasm threadpool, executes tasks with the threadpool, and broadcasts heartbeats
+// If a background thread panics, this worker will silently hang and stop sending heartbeats so the main process can kill it
 const { parentPort, threadId } = require('worker_threads');
 
-// store threadId for memory initialization - see patch-env.js
+// store threadpool-host's threadId for shared memory initialization - see patch-env.js
 // this must be set before loading the wasm module
-process.env.workerManagerThread = threadId;
+process.env.threadPoolHostThreadId = threadId;
 
 
 // Exit if not running as a worker
