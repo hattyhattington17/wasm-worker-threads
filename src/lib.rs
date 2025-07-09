@@ -16,7 +16,7 @@ extern "C" {
     pub fn log(s: &str);
 }
 
-// calls JS global.postMessageToMainThread (node-worker.cjs) which sends a postmessage to the main thread with the given message
+// calls JS global.postMessageToMainThread (rayon-worker.cjs) which sends a postmessage to the main thread with the given message
 fn post_message_to_main_thread(msg: &String) {
     log(format!("rust: post_message_to_main_thread - {}", msg).as_str());
     post_message_to_main_thread_js(&JsValue::from_str(msg));

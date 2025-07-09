@@ -8,11 +8,10 @@ const workerId = workerData.workerId;
 if (!mainThreadPort) {
   throw Error("Main thread port not supplied");
 }
-// Override global postMessage to send messages through the MessagePort to main thread
+
+// global function exposed to wasm - sends messages through this worker's channel to the main thread
 globalThis.postMessageToMainThread = (msg) => {
   console.log(`Worker ${workerId} (thread ${threadId}) forwarding postMessage to main thread: ${msg}`);
-  
-  // Send directly to main thread through the dedicated MessagePort
   mainThreadPort.postMessage(msg);
 };
 
@@ -20,20 +19,16 @@ globalThis.postMessageToMainThread = (msg) => {
 parentPort.postMessage({ type: 'wasm_bindgen_worker_ready' });
 
 try {
-  // `receiver` is a raw pointer to a `rayon::ThreadBuilder`.
   // Calling `wbg_rayon_start_worker()` hands control to Rayon’s scheduler
+  // `receiver` is a raw pointer to a `rayon::ThreadBuilder`.
   wasm.wbg_rayon_start_worker(workerData.receiver);
 } catch (e) {
   console.log(`Worker ${workerId} (thread ${threadId}) panicked`);
-  // Notify main thread about the panic
-  mainThreadPort.postMessage({
-    type: 'worker_panic',
-    workerId: workerId,
-    error: e.stack,
-  });
+  // Notify main thread about the panic - we must notify the main thread, ThreadPoolHost will be frozen 
+  mainThreadPort.postMessage({ type: 'worker_panic', workerId: workerId, error: e.stack, });
 }
 // in the success case, this never runs. The worker is closed by Rayon
-console.log(`Worker ${workerId} (thread ${threadId}) is exiting`);
+console.log(`Worker ${workerId} (thread ${threadId}) is exiting unexpectedly`);
 
 
 
