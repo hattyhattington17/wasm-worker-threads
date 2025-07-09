@@ -40,7 +40,7 @@ impl PoolBuilder {
         }
     }
 
-    /// expose setter for number of threads to JS
+    /// expose getter for number of threads to JS
     #[wasm_bindgen(js_name = numThreads)]
     pub fn num_threads(&self) -> usize {
         self.num_threads

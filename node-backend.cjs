@@ -6,6 +6,7 @@ const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
 
 let workerPorts = [];
 function setWorkerPorts(ports) {
+  console.log(`Setting worker ports: ${ports.length} ports`);
   workerPorts = ports;
 }
 /**
@@ -30,7 +31,6 @@ async function initThreadPool() {
   // todo: investigate behavior with different numbers of threads
   const threadCount = Math.max(1, (workers.numWorkers ?? (os.availableParallelism?.() ?? 1) - 1));
   await wasm.initThreadPool(threadCount);
-
   // wait until startWorkers signals readiness
   await workersReady;
   workersReady = undefined;
@@ -103,6 +103,7 @@ async function startWorkers(memory, builder) {
   );
 
   // once all workers are ready, build the threadpool
+  builder.numThreads
   builder.build();
 
   // notify initThreadPool that workers are ready
@@ -124,4 +125,5 @@ global.terminateWorkers = terminateWorkers;
 
 // expose thread pool runner for application
 exports.withThreadPool = CreateThreadPoolRunner({ initThreadPool, exitThreadPool });
+// todo: instead of exposing this, combine node-backend and threadpool-host
 exports.setWorkerPorts = setWorkerPorts;

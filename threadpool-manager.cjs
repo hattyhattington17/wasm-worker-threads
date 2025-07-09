@@ -67,11 +67,7 @@ class ThreadpoolManager {
         }
 
         // Send all port1 instances to ThreadPoolHost Worker to forward to each rayon thread worker
-        this.threadPoolHostWorker.postMessage({
-            type: 'workerChannels',
-            ports: port1Array,
-            numWorkers: this.numWorkers
-        }, port1Array);
+        this.threadPoolHostWorker.postMessage({ type: 'workerChannels', ports: port1Array, numWorkers: this.numWorkers }, port1Array);
 
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
