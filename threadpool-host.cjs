@@ -12,7 +12,7 @@ if (!parentPort) {
     console.log("worker exiting");
     process.exit(1);
 }
-console.log("ThreadpoolManagerWorker launched, sending ready message");
+console.log("ThreadPoolHost Worker launched, sending ready message");
 parentPort.postMessage({ type: 'ready' });
 
 // Send heartbeat every second
@@ -25,7 +25,7 @@ let numWorkers = 0;
 
 // handle requests to execute tasks with the threadpool
 parentPort.on('message', async (msg) => {
-    console.log(`ThreadpoolManagerWorker received message from ThreadpoolManager (main process): ${msg.type}`);
+    console.log(`ThreadPoolHost Worker received message from ThreadpoolManager (main process): ${msg.type}`);
 
     const { withThreadPool, setWorkerPorts } = require('./node-backend.cjs');
     const wasmModule = require('./pkg/blog_demo.js');
