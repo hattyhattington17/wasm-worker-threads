@@ -13,17 +13,17 @@ class ThreadpoolManager {
         // worker that runs the threadpool
         this.threadPoolHostWorker = null;
         this.isThreadPoolHostReady = false;
+
         // Map of requests made to the threadpool to their resolvers: requestId -> {resolve, reject}
-        this.pendingRequests = new Map();  
+        this.pendingRequests = new Map();
         this.nextRequestId = 1;
-        
+
         // Heartbeat monitoring
         this.lastHeartbeat = null;
         this.heartbeatChecker = null;
 
-        // Worker postmessage communication channels - a unique channel is required for each worker
+        // Worker postmessage communication channels - unique channel is required for each worker
         this.workerChannels = [];
-        this.workerPorts = [];
         this.numWorkers = options.numWorkers || Math.max(1, (os.availableParallelism?.() ?? 1) - 1);
     }
 
@@ -36,7 +36,7 @@ class ThreadpoolManager {
         }
 
         const requestId = this.nextRequestId++;
-        
+
         return new Promise((resolve, reject) => {
             // Store request promise with unique ID
             this.pendingRequests.set(requestId, {
@@ -51,11 +51,11 @@ class ThreadpoolManager {
             });
 
             // Send request to worker with unique ID
-            this.threadPoolHostWorker.postMessage({ 
-                type: 'execute', 
+            this.threadPoolHostWorker.postMessage({
+                type: 'execute',
                 requestId,
-                functionName, 
-                args 
+                functionName,
+                args
             });
         });
     }
@@ -74,7 +74,7 @@ class ThreadpoolManager {
 
         // Listen for events from the ThreadpoolManagerWorker
         this.threadPoolHostWorker.on('message', (msg) => {
-             this.handleWorkerMessage(msg);
+            this.handleWorkerMessage(msg);
         });
 
         this.threadPoolHostWorker.on('error', (error) => {
@@ -95,13 +95,12 @@ class ThreadpoolManager {
         // Create MessageChannels for each worker thread
         console.log(`Creating ${this.numWorkers} MessageChannels for worker threads`);
         const port1Array = [];
-        
+
         for (let i = 0; i < this.numWorkers; i++) {
             const channel = new MessageChannel();
             this.workerChannels.push(channel);
-            this.workerPorts.push(channel.port2);
             port1Array.push(channel.port1);
-            
+
             // Set up message handling for this worker
             channel.port2.on('message', (msg) => {
                 console.log(`[Main Thread] Received from Worker ${i}:`, msg);
@@ -110,17 +109,17 @@ class ThreadpoolManager {
                     console.log(`[Worker ${i} Rust Message]:`, msg);
                 }
             });
-            
+
             channel.port2.on('error', (error) => {
                 console.error(`[Main Thread] Worker ${i} channel error:`, error);
             });
         }
 
         // Send all port1 instances to ThreadpoolManagerWorker
-        this.threadPoolHostWorker.postMessage({ 
-            type: 'workerChannels', 
+        this.threadPoolHostWorker.postMessage({
+            type: 'workerChannels',
             ports: port1Array,
-            numWorkers: this.numWorkers 
+            numWorkers: this.numWorkers
         }, port1Array);
 
         // Start heartbeat monitoring
@@ -167,7 +166,7 @@ class ThreadpoolManager {
             request.reject(new Error(`Worker failed: ${error}`));
         }
         this.pendingRequests.clear();
-        
+
         // todo: implement recovery
         this.isThreadPoolHostReady = false;
         this.stopHeartbeatMonitoring();
@@ -224,11 +223,10 @@ class ThreadpoolManager {
         this.stopHeartbeatMonitoring();
 
         // Close all worker channels
-        for (const port of this.workerPorts) {
-            port.close();
+        for (const channel of this.workerChannels) {
+            channel.port2.close();
         }
         this.workerChannels = [];
-        this.workerPorts = [];
 
         if (this.threadPoolHostWorker) {
             await this.threadPoolHostWorker.terminate();

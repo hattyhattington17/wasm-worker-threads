@@ -27,6 +27,7 @@ let wasmWorkers = [];
  */
 async function initThreadPool() {
   workersReady = new Promise((resolve) => (workersReadyResolve = resolve));
+  // todo: investigate behavior with different numbers of threads
   const threadCount = Math.max(1, (workers.numWorkers ?? (os.availableParallelism?.() ?? 1) - 1));
   await wasm.initThreadPool(threadCount);
 
@@ -56,23 +57,23 @@ async function exitThreadPool() {
 async function startWorkers(memory, builder) {
   const workerPath = path.resolve(__dirname, './node-worker.cjs');
   wasmWorkers = [];
-  
+
   // Ensure we have enough ports for all workers
   if (workerPorts.length < builder.numThreads()) {
     throw new Error(`Not enough MessagePorts: have ${workerPorts.length}, need ${builder.numThreads()}`);
   }
-  
+
   await Promise.all(
     Array.from({ length: builder.numThreads() }, (_, index) => {
       // Each worker gets its own dedicated MessagePort
       const workerPort = workerPorts[index];
-      
+
       const worker = new Worker(workerPath, {
-        workerData: { 
-          memory, 
-          receiver: builder.receiver(), 
+        workerData: {
+          memory,
+          receiver: builder.receiver(),
           mainThreadPort: workerPort,
-          workerId: index 
+          workerId: index
         },
         transferList: [workerPort]
       });
@@ -84,7 +85,7 @@ async function startWorkers(memory, builder) {
         worker.on('message', (data) => {
           // Note: These messages are from the worker thread initialization,
           // not from postMessage calls which go through the MessagePort
-          
+
           // listen for debug messages sent from the worker
           if (data.type === 'wasm_bindgen_worker_debug') {
             logWorkerDebug(data.message, index);
