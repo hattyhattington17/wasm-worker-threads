@@ -16,7 +16,7 @@ where
     let pool = unsafe { THREAD_POOL.as_ref().unwrap() };
     pool.install(op)
 }
- 
+
 /// Wraps SPMC channel used to send Rayon ThreadBuilders to JS workers
 #[wasm_bindgen]
 pub struct PoolBuilder {
@@ -24,7 +24,6 @@ pub struct PoolBuilder {
     sender: Sender<rayon::ThreadBuilder>,
     receiver: Receiver<rayon::ThreadBuilder>,
 }
-
 
 /// Creates SPMC channel to send Rayon ThreadBuilders to JS workers
 /// after that, Rayon work-stealing queues handle task scheduling and cross-thread communication internally
@@ -69,7 +68,7 @@ impl PoolBuilder {
     }
 }
 
-/// Entrypoint - Called by JS node-backend to initialize the thread pool with a specified number of threads 
+/// Entrypoint - Called by JS node-backend to initialize the thread pool with a specified number of threads
 #[wasm_bindgen(js_name = initThreadPool)]
 pub fn init_thread_pool(num_threads: usize) -> Promise {
     // Create a PoolBuilder with an SPMC channel for distributing ThreadBuilders to workers.
@@ -86,7 +85,7 @@ where
 {
     // retrieve the SPMC receiver, then use it to receive a Rayon ThreadBuilder
     let receiver = unsafe { &*receiver };
-                                                                    
+
     // run the ThreadBuilder, this will continuously poll for tasks from Rayon's work-stealing queues and block until the pool is shut down
     receiver.recv().unwrap_throw().run();
 }
@@ -99,6 +98,12 @@ pub fn exit_thread_pool() -> Promise {
         THREAD_POOL = None;
         promise
     }
+}
+
+/// expose the shared memory to JS
+#[wasm_bindgen(js_name = getMemory)]
+pub fn get_memory() -> JsValue {
+    return wasm_bindgen::memory();
 }
 
 /// FFI bindings to JS functions that spawn and terminate workers

@@ -13,12 +13,10 @@ const file = process.argv[2];
 let { isMainThread, workerData, threadId } = require('worker_threads');
 let env = {};
 
-if (process.env.threadPoolHostThreadId === undefined) {
-  throw new Error("process.env.threadPoolHostThreadId must be set to the threadId of the worker that manages the thread pool hint: did you try to import the wasm wrapper before setting the threadPoolHostThreadId?");
-}
-
-if (+process.env.threadPoolHostThreadId === threadId) {
-  console.log("Initializing linear memory on thread " + threadId);
+// expose the shared memory through the imports object under env
+// used from wasm with: (import "env" "memory" (memory 1 2 shared))
+if (isMainThread) {
+  console.log("Initializing linear memory on main thread");
   env.memory = new WebAssembly.Memory({
     initial: 20,
     maximum: 10553,
@@ -28,6 +26,7 @@ if (+process.env.threadPoolHostThreadId === threadId) {
   env.memory = workerData.memory;
 }
 
+// imports is the imports object passed into module instantiation: new WebAssembly.Instance(wasmModule, imports)
 imports['env'] = env;
 `
   );

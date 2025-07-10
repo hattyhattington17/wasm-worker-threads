@@ -6,6 +6,8 @@
 const { Worker, MessageChannel } = require('worker_threads');
 const path = require('path');
 const os = require('os');
+const wasm = require('./pkg/blog_demo.js');
+
 
 class ThreadpoolManager {
     constructor(options = {}) {
@@ -34,7 +36,10 @@ class ThreadpoolManager {
     async initWorker() {
         console.log('Starting ThreadPoolHost worker...');
         try {
-            this.threadPoolHostWorker = new Worker(path.join(__dirname, 'threadpool-host.cjs'));
+            // todo: pass shared memory to the worker
+            let sharedMemory = wasm.getMemory();
+            this.threadPoolHostWorker = new Worker(path.join(__dirname, 'threadpool-host.cjs'),
+                { workerData: { memory: sharedMemory } });
         } catch (error) {
             console.error('Failed to create ThreadPoolHost worker:', error);
             throw error;
