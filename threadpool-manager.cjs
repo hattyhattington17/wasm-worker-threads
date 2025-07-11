@@ -8,14 +8,12 @@ const path = require('path');
 const os = require('os');
 const wasm = require('./pkg/blog_demo.js');
 
-
 class ThreadpoolManager {
     constructor(options = {}) {
         this.timeout = options.timeout || 5000;
 
         // worker that runs the threadpool
         this.threadPoolHostWorker = null;
-        this.isThreadPoolHostReady = false;
 
         // Map of requests made to the threadpool to their resolvers: requestId -> {resolve, reject}
         this.pendingRequests = new Map();
@@ -28,15 +26,19 @@ class ThreadpoolManager {
         // Worker postmessage communication channels - unique channel is required for each worker
         this.workerChannels = [];
         this.numWorkers = options.numWorkers || Math.max(1, (os.availableParallelism?.() ?? 1) - 1);
+
+        // Pool lifecycle state
+        this.poolState = 'none'; // none | initializing | running | exiting
+        this.initPromise = null;
+        this.exitPromise = null;
     }
 
     /**
     * Start the ThreadPoolHost worker which is responsible for spawning the threadpool
     */
-    async initWorker() {
+    async initThreadPool() {
         console.log('Starting ThreadPoolHost worker...');
         try {
-            // todo: pass shared memory to the worker
             let sharedMemory = wasm.getMemory();
             this.threadPoolHostWorker = new Worker(path.join(__dirname, 'threadpool-host.cjs'),
                 { workerData: { memory: sharedMemory } });
@@ -50,13 +52,10 @@ class ThreadpoolManager {
         this.threadPoolHostWorker.on('error', (error) => this.handleWorkerFailure(error.message));
         this.threadPoolHostWorker.on('exit', (code) => {
             console.log(`ThreadPoolHost Worker exited with code ${code}`);
-            if (code !== 0) {
+            if (code !== 0 && this.poolState !== 'exiting') {
                 this.handleWorkerFailure(`ThreadPoolHost Worker crashed with code ${code}`);
             }
         });
-
-        // Wait for worker to be ready
-        await this.awaitThreadPoolHostReady();
 
         // Create MessageChannels for each rayon thread worker to communicate with the main process
         // for each channel, ThreadPoolManager listens on port2 and sends port1 for ThreadPoolHost to forward to each worker
@@ -68,11 +67,13 @@ class ThreadpoolManager {
 
             // set listeners for each rayon thread worker
             channel.port2.on('message', (msg) => console.log(`[Main Thread] Received from Worker ${i}:`, msg));
-            channel.port2.on('error', (error) => console.error(`[Main Thread] Received worker ${i} channel error:`, error));
         }
 
         // Send all port1 instances to ThreadPoolHost Worker to forward to each rayon thread worker
         this.threadPoolHostWorker.postMessage({ type: 'workerChannels', ports: port1Array, numWorkers: this.numWorkers }, port1Array);
+
+        // Wait for pool to be initialized
+        await this.awaitPoolReady();
 
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
@@ -83,27 +84,64 @@ class ThreadpoolManager {
      * functionName and args must be cloneable so they can be sent to the worker
      */
     async execute(functionName, args = []) {
-        // verify that the threadpool is ready
-        if (!this.isThreadPoolHostReady) {
-            throw new Error('ThreadPool not ready');
+        // Handle different pool states
+        switch (this.poolState) {
+            case 'none':
+                // Initialize pool on first request
+                this.poolState = 'initializing';
+                this.initPromise = this.initThreadPool().then(() => {
+                    this.poolState = 'running';
+                }).catch(err => {
+                    this.poolState = 'none';
+                    throw err;
+                });
+                await this.initPromise;
+                break;
+            
+            case 'initializing':
+                // Wait for ongoing initialization
+                await this.initPromise;
+                break;
+            
+            case 'running':
+                // Pool is ready, continue
+                break;
+            
+            case 'exiting':
+                // Wait for exit to complete, then reinitialize
+                await this.exitPromise;
+                this.poolState = 'initializing';
+                this.initPromise = this.initThreadPool().then(() => {
+                    this.poolState = 'running';
+                }).catch(err => {
+                    this.poolState = 'none';
+                    throw err;
+                });
+                await this.initPromise;
+                break;
         }
-        // store the request with a unique ID so that we can map the correct responses to concurrent requests
-        const requestId = this.nextRequestId++;
-        return new Promise((resolve, reject) => {
-            this.pendingRequests.set(requestId, {
-                resolve: (result) => {
-                    this.pendingRequests.delete(requestId);
-                    resolve(result);
-                },
-                reject: (error) => {
-                    this.pendingRequests.delete(requestId);
-                    reject(error);
-                }
-            });
 
-            // Send request to ThreadPoolHost Worker with unique ID
+        const requestId = this.nextRequestId++;
+        try {
+            // Create promise for this request
+            const resultPromise = new Promise((resolve, reject) => this.pendingRequests.set(requestId, { resolve, reject }));
             this.threadPoolHostWorker.postMessage({ type: 'execute', requestId, functionName, args });
-        });
+            return await resultPromise;
+        } finally {
+            this.pendingRequests.delete(requestId);
+            
+            // Shut down immediately if no more pending requests
+            if (this.pendingRequests.size === 0 && this.poolState === 'running') {
+                console.log('No active requests, shutting down ThreadPool...');
+                this.poolState = 'exiting';
+                this.exitPromise = this.shutdown().then(() => {
+                    this.poolState = 'none';
+                }).catch(err => {
+                    console.error('Error during shutdown:', err);
+                    this.poolState = 'none';
+                });
+            }
+        }
     }
 
     /**
@@ -112,8 +150,8 @@ class ThreadpoolManager {
     handleWorkerMessage(msg) {
         console.log(`ThreadPoolHost Worker sent message: ${JSON.stringify(msg)}`)
         switch (msg.type) {
-            case 'ready':
-                this.isThreadPoolHostReady = true;
+            case 'poolReady':
+                // Pool is now initialized and ready to use
                 break;
             case 'result':
                 // resolve the result from a task executed in the threadpool to its corresponding request
@@ -138,26 +176,31 @@ class ThreadpoolManager {
             request.reject(new Error(`Worker failed: ${error}`));
         }
         this.pendingRequests.clear();
-        this.isThreadPoolHostReady = false;
         this.shutdown();
     }
 
+
     /**
-     * Wait for worker to signal readiness
+     * Wait for pool to be initialized and ready
      */
-    awaitThreadPoolHostReady() {
-        console.log("Waiting for ThreadPoolHost Worker ready message");
+    awaitPoolReady() {
+        console.log("Waiting for ThreadPool to be ready...");
         return new Promise((resolve, reject) => {
-            // Error if the worker still hasn't signaled readiness after 5 seconds
-            const timeout = setTimeout(() => reject(new Error('Worker failed to initialize')), 5000);
-            // Poll for readiness every 100ms
-            const workerReadyPoll = setInterval(() => {
-                if (this.isThreadPoolHostReady) {
+            // Error if the pool still hasn't been initialized after 10 seconds
+            const timeout = setTimeout(() => {
+                this.threadPoolHostWorker.off('message', poolReadyHandler);
+                reject(new Error('Pool failed to initialize'));
+            }, 10000);
+            
+            const poolReadyHandler = (msg) => {
+                if (msg.type === 'poolReady') {
                     clearTimeout(timeout);
-                    clearInterval(workerReadyPoll);
+                    this.threadPoolHostWorker.off('message', poolReadyHandler);
                     resolve();
                 }
-            }, 100);
+            };
+            
+            this.threadPoolHostWorker.on('message', poolReadyHandler);
         });
     }
 
@@ -173,29 +216,45 @@ class ThreadpoolManager {
             }
         }, 1000);
     }
-
-    /**
-     * Stop heartbeat monitoring
-     */
-    stopHeartbeatMonitoring() {
-        if (this.heartbeatChecker) {
-            clearInterval(this.heartbeatChecker);
-            this.heartbeatChecker = null;
-        }
-    }
-
+ 
     /**
      * Shutdown the worker channels, stop listening for heartbeats, and terminate the ThreadPoolHost worker
      */
     async shutdown() {
-        this.stopHeartbeatMonitoring();
+        if (this.heartbeatChecker) {
+            clearInterval(this.heartbeatChecker);
+            this.heartbeatChecker = null;
+        }
         for (const channel of this.workerChannels) {
             channel.port2.close();
         }
         this.workerChannels = [];
         if (this.threadPoolHostWorker) {
-            await this.threadPoolHostWorker.terminate();
-            this.threadPoolHostWorker = null;
+            // Send graceful shutdown message first
+            this.threadPoolHostWorker.postMessage({ type: 'terminate' });
+
+            // Wait for graceful shutdown with timeout
+            const shutdownPromise = new Promise((resolve) => {
+                const exitHandler = (code) => {
+                    console.log(`ThreadPoolHost Worker exited gracefully with code ${code}`);
+                    this.threadPoolHostWorker = null;
+                    resolve();
+                };
+                this.threadPoolHostWorker.once('exit', exitHandler);
+            });
+
+            const timeoutPromise = new Promise((resolve) => {
+                setTimeout(async () => {
+                    if (this.threadPoolHostWorker) {
+                        console.log('ThreadPoolHost Worker did not exit gracefully, force terminating...');
+                        await this.threadPoolHostWorker.terminate();
+                        this.threadPoolHostWorker = null;
+                    }
+                    resolve();
+                }, 2000);
+            });
+
+            await Promise.race([shutdownPromise, timeoutPromise]);
         }
     }
 }

@@ -1,12 +1,9 @@
 // worker process that spawns the Wasm threadpool, executes tasks with the threadpool, and broadcasts heartbeats
 // If a background thread panics, this worker will silently hang and stop sending heartbeats so the main process can kill it
-const wasmModule = require('./pkg/blog_demo.js');
-const { setNumberOfWorkers } = require('./threadpool-runner.cjs');
-const { isMainThread, parentPort, workerData, Worker, threadId } = require('worker_threads');
+const { parentPort, Worker } = require('worker_threads');
 const os = require('os');
 const path = require('path');
 const wasm = require('./pkg/blog_demo.js');
-const { CreateThreadPoolRunner, workers } = require('./threadpool-runner.cjs');
 
 // Exit if not running as a worker
 if (!parentPort) {
@@ -14,81 +11,125 @@ if (!parentPort) {
     process.exit(1);
 }
 
+// Add global error handlers
+process.on('uncaughtException', (error) => {
+    console.error('[ThreadPoolHost] Uncaught Exception:', error, error.stack);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[ThreadPoolHost] Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+
 // Send heartbeat every second
 const heartbeatInterval = setInterval(() => {
     parentPort.postMessage({ type: 'heartbeat', timestamp: Date.now() });
-}, 1000);
-parentPort.postMessage({ type: 'ready' });
+}, 1000); 
 
 // tracks state of worker readiness
 let workersReadyResolve, workersReady;
-/** @type {Worker[]} currently running worker instances */
 let wasmWorkers = [];
 let workerPorts = [];
+let numWorkers = 0;
+let poolInitialized = false;
 
-// create a runner that can execute tasks with the threadpool available
-// and tear down the threadpool when no longer needed
-const withThreadPool = CreateThreadPoolRunner({
-    /**
-     * Initialize the Wasm thread pool
-     */
-    initThreadPool: async function initThreadPool() {
+async function initializePool() {
+    if (poolInitialized) {
+        console.log('[ThreadPoolHost] Pool already initialized, skipping');
+        return;
+    }
+
+    try {
+        console.log('[ThreadPoolHost] Starting pool initialization...');
+
         workersReady = new Promise((resolve) => (workersReadyResolve = resolve));
-        const threadCount = Math.max(1, (workers.numWorkers ?? (os.availableParallelism?.() ?? 1) - 1));
-        await wasm.initThreadPool(threadCount);
+        await wasm.initThreadPool(Math.max(1, (numWorkers ?? (os.availableParallelism?.() ?? 1) - 1)));
         // wait until startWorkers signals readiness
         await workersReady;
+
         workersReady = undefined;
-    },
-    /**
-     * tear down wasm thread pool
-     * called by createThreadPoolRunner when pool is no longer needed
-     */
-    exitThreadPool: async function exitThreadPool() {
-        await wasm.exitThreadPool();
+        poolInitialized = true;
+        console.log('[ThreadPoolHost] Pool initialization completed successfully');
+    } catch (error) {
+        console.error('[ThreadPoolHost] Pool initialization failed:', error, error.stack);
+        throw error;
     }
-});
+}
+
+async function teardownPool() {
+    if (!poolInitialized) {
+        console.log('[ThreadPoolHost] Pool not initialized, skipping teardown');
+        return;
+    }
+
+    try {
+        console.log('[ThreadPoolHost] Starting pool teardown...');
+        await wasm.exitThreadPool();
+        poolInitialized = false;
+        console.log('[ThreadPoolHost] Pool teardown completed');
+    } catch (error) {
+        console.error('[ThreadPoolHost] Pool teardown failed:', error, error.stack);
+        throw error;
+    }
+}
 
 // handle requests to execute tasks with the threadpool
 parentPort.on('message', async (msg) => {
-    console.log(`ThreadPoolHost Worker received message from ThreadpoolManager (main process): ${JSON.stringify(msg)}`);
-    switch (msg.type) {
-        case 'workerChannels':
-            setNumberOfWorkers(msg.numWorkers);
-            // store the worker ports to be forwarded to the rayon workers
-            workerPorts = msg.ports;
-            break;
-        case 'execute':
-            const { requestId, functionName, args } = msg;
-            try {
-                await withThreadPool(async () => {
+    try {
+        console.log(`[ThreadPoolHost] Received message from ThreadpoolManager: ${JSON.stringify(msg)}`);
+        switch (msg.type) {
+            case 'workerChannels':
+                console.log(`[ThreadPoolHost] Setting up worker channels for ${msg.numWorkers} workers`);
+                numWorkers = msg.numWorkers;
+                // store the worker ports to be forwarded to the rayon workers
+                workerPorts = msg.ports;
+                // Initialize the pool once when we get the worker channels
+                // todo - shouldn't there be a separate init message?
+                await initializePool();
+                parentPort.postMessage({ type: 'poolReady' });
+                break;
+            case 'execute':
+                const { requestId, functionName, args } = msg;
+                console.log(`[ThreadPoolHost] Starting execution - requestId: ${requestId}, function: ${functionName}`);
+                try {
                     // Get the function 
                     // todo: this needs to support calling js functions
-                    const fn = wasmModule[functionName];
+                    const fn = wasm[functionName];
                     if (!fn) {
-                        throw new Error(`Function '${functionName}' not found`);
+                        const error = `Function '${functionName}' not found`;
+                        console.error(`[ThreadPoolHost] Error: ${error}`);
+                        throw new Error(error);
                     }
-
+                    console.log(`[ThreadPoolHost] Executing function ${functionName} with args:`, args);
                     // Execute the function, if a panic occurs on a background thread, this will silently hang
                     const result = fn(...args);
+                    console.log(`[ThreadPoolHost] Function ${functionName} completed successfully, result: ${result}`);
+
                     // Send result back to ThreadpoolManager with requestId 
                     parentPort.postMessage({ type: 'result', requestId, success: true, result: result });
-                });
-            } catch (error) {
-                parentPort.postMessage({
-                    type: 'result',
-                    requestId,
-                    success: false,
-                    error: error.toString()
-                });
-            }
-            break;
-        case 'terminate':
-            clearInterval(heartbeatInterval);
-            process.exit(0);
-            break;
-        default:
-            console.warn(`ThreadPoolHost Worker received unknown message type: ${msg.type}`);
+                } catch (error) {
+                    console.error(`[ThreadPoolHost] Error executing ${functionName}:`, error, error.stack);
+                    parentPort.postMessage({ type: 'result', requestId, success: false, error: error.toString() });
+                }
+                break;
+            case 'terminate':
+                console.log('[ThreadPoolHost] Received terminate message');
+                // todo: do we need to stop sending heartbeats on teardown?
+                clearInterval(heartbeatInterval);
+                await teardownPool();
+                console.log('[ThreadPoolHost] Exiting...');
+                process.exit(0);
+                break;
+            default:
+                console.warn(`[ThreadPoolHost] Unknown message type: ${msg.type}`);
+        }
+    } catch (error) {
+        console.error('[ThreadPoolHost] Error handling message:', error, error.stack);
+        // Try to send error back to main thread if this was an execute request
+        if (msg.type === 'execute' && msg.requestId) {
+            parentPort.postMessage({ type: 'result', requestId: msg.requestId, success: false, error: `ThreadPoolHost error: ${error.toString()}` });
+        }
     }
 });
 
