@@ -6,19 +6,13 @@ async function main() {
     });
 
     try {
-        const result1 = manager.execute('multithreadedSum', []);
-        const result2 = manager.execute('multithreadedSum', []);
-        const result3 = manager.execute('multithreadedSum', []);
-        const result4 = manager.execute('multithreadedSum', []);
-        const result5 = manager.execute('multithreadedSum', []);
-        const result6 = manager.execute('multithreadedSum', []);
-
-        const results = await Promise.all([result1, result2, result3, result4, result5, result6]);
+        const promises = Array.from({ length: 6 }, () => manager.execute('multithreadedSum', []));
+        const results = await Promise.all(promises);
         results.forEach((result, index) => {
             console.log(`Result from multithreadedSum ${index + 1}: ${result}`);
         });
 
-        // delay 2 seconds to allow for worker threads to process
+        // 2 second wait to let pool shut down
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         const result7 = await manager.execute('multithreadedSum', []);

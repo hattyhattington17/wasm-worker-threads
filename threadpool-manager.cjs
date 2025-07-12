@@ -31,21 +31,21 @@ class ThreadpoolManager {
         this.poolState = 'none'; // none | initializing | running | exiting
         this.initPromise = null;
         this.exitPromise = null;
+
+        // Pool ready tracking
+        this.poolReadyResolve = null;
     }
 
     /**
     * Start the ThreadPoolHost worker which is responsible for spawning the threadpool
+    * then start the ThreadPool
     */
     async initThreadPool() {
         console.log('Starting ThreadPoolHost worker...');
-        try {
-            let sharedMemory = wasm.getMemory();
-            this.threadPoolHostWorker = new Worker(path.join(__dirname, 'threadpool-host.cjs'),
-                { workerData: { memory: sharedMemory } });
-        } catch (error) {
-            console.error('Failed to create ThreadPoolHost worker:', error);
-            throw error;
-        }
+
+        let sharedMemory = wasm.getMemory();
+        this.threadPoolHostWorker = new Worker(path.join(__dirname, 'threadpool-host.cjs'),
+            { workerData: { memory: sharedMemory } });
 
         // Listen for events from the ThreadPoolHost
         this.threadPoolHostWorker.on('message', (msg) => this.handleWorkerMessage(msg));
@@ -70,11 +70,12 @@ class ThreadpoolManager {
         }
 
         // Send all port1 instances to ThreadPoolHost Worker to forward to each rayon thread worker
-        this.threadPoolHostWorker.postMessage({ type: 'workerChannels', ports: port1Array, numWorkers: this.numWorkers }, port1Array);
+        this.threadPoolHostWorker.postMessage({ type: 'initPool', ports: port1Array, numWorkers: this.numWorkers }, port1Array);
 
-        // Wait for pool to be initialized
-        await this.awaitPoolReady();
-
+        // Wait for pool to be initialized 
+        await new Promise((resolve, reject) => {
+            this.poolReadyResolve = resolve;
+        });
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
     }
@@ -97,16 +98,16 @@ class ThreadpoolManager {
                 });
                 await this.initPromise;
                 break;
-            
+
             case 'initializing':
                 // Wait for ongoing initialization
                 await this.initPromise;
                 break;
-            
+
             case 'running':
                 // Pool is ready, continue
                 break;
-            
+
             case 'exiting':
                 // Wait for exit to complete, then reinitialize
                 await this.exitPromise;
@@ -129,7 +130,7 @@ class ThreadpoolManager {
             return await resultPromise;
         } finally {
             this.pendingRequests.delete(requestId);
-            
+
             // Shut down immediately if no more pending requests
             if (this.pendingRequests.size === 0 && this.poolState === 'running') {
                 console.log('No active requests, shutting down ThreadPool...');
@@ -152,6 +153,7 @@ class ThreadpoolManager {
         switch (msg.type) {
             case 'poolReady':
                 // Pool is now initialized and ready to use
+                this.poolReadyResolve()
                 break;
             case 'result':
                 // resolve the result from a task executed in the threadpool to its corresponding request
@@ -179,31 +181,6 @@ class ThreadpoolManager {
         this.shutdown();
     }
 
-
-    /**
-     * Wait for pool to be initialized and ready
-     */
-    awaitPoolReady() {
-        console.log("Waiting for ThreadPool to be ready...");
-        return new Promise((resolve, reject) => {
-            // Error if the pool still hasn't been initialized after 10 seconds
-            const timeout = setTimeout(() => {
-                this.threadPoolHostWorker.off('message', poolReadyHandler);
-                reject(new Error('Pool failed to initialize'));
-            }, 10000);
-            
-            const poolReadyHandler = (msg) => {
-                if (msg.type === 'poolReady') {
-                    clearTimeout(timeout);
-                    this.threadPoolHostWorker.off('message', poolReadyHandler);
-                    resolve();
-                }
-            };
-            
-            this.threadPoolHostWorker.on('message', poolReadyHandler);
-        });
-    }
-
     /**
      * Poll every second for heartbeats from the ThreadPoolHost worker
      */
@@ -216,7 +193,7 @@ class ThreadpoolManager {
             }
         }, 1000);
     }
- 
+
     /**
      * Shutdown the worker channels, stop listening for heartbeats, and terminate the ThreadPoolHost worker
      */
@@ -228,33 +205,18 @@ class ThreadpoolManager {
         for (const channel of this.workerChannels) {
             channel.port2.close();
         }
+        // todo: do we need to close the worker channel ports?
         this.workerChannels = [];
         if (this.threadPoolHostWorker) {
-            // Send graceful shutdown message first
+            console.log('Terminating ThreadPoolHost Worker...');
             this.threadPoolHostWorker.postMessage({ type: 'terminate' });
-
-            // Wait for graceful shutdown with timeout
-            const shutdownPromise = new Promise((resolve) => {
-                const exitHandler = (code) => {
+            await new Promise((resolve) => {
+                this.threadPoolHostWorker.once('exit', (code) => {
                     console.log(`ThreadPoolHost Worker exited gracefully with code ${code}`);
                     this.threadPoolHostWorker = null;
                     resolve();
-                };
-                this.threadPoolHostWorker.once('exit', exitHandler);
+                });
             });
-
-            const timeoutPromise = new Promise((resolve) => {
-                setTimeout(async () => {
-                    if (this.threadPoolHostWorker) {
-                        console.log('ThreadPoolHost Worker did not exit gracefully, force terminating...');
-                        await this.threadPoolHostWorker.terminate();
-                        this.threadPoolHostWorker = null;
-                    }
-                    resolve();
-                }, 2000);
-            });
-
-            await Promise.race([shutdownPromise, timeoutPromise]);
         }
     }
 }
