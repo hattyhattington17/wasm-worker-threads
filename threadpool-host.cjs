@@ -48,20 +48,19 @@ parentPort.on('message', async (msg) => {
             await workersReady; 
             parentPort.postMessage({ type: 'poolReady' });
             break;
-        case 'execute':
-            const { requestId, functionName, args } = msg;
-            console.log(`[ThreadPoolHost] Starting execution - requestId: ${requestId}, function: ${functionName}`);
+        case 'wasmCall':
+            const { callId, functionName, args } = msg;
+            console.log(`[ThreadPoolHost] Executing WASM call - callId: ${callId}, function: ${functionName}`);
             try {
-                // todo: this needs to support calling js functions 
-                // Execute the function, if a panic occurs on a background thread, this will silently hang
-                const result = wasm[functionName](...args);
-                console.log(`[ThreadPoolHost] Function ${functionName} completed successfully, result: ${result}`);
-
-                // Send result back to ThreadpoolManager with requestId 
-                parentPort.postMessage({ type: 'result', requestId, success: true, result: result });
+                // Execute the WASM function
+                const result = await wasm[functionName](...args);
+                console.log(`[ThreadPoolHost] WASM function ${functionName} completed successfully, result: ${result}`);
+                
+                // Send result back to ThreadpoolManager
+                parentPort.postMessage({ type: 'wasmResult', callId, success: true, result: result });
             } catch (error) {
-                console.error(`[ThreadPoolHost] Error executing ${functionName}:`, error, error.stack);
-                parentPort.postMessage({ type: 'result', requestId, success: false, error: error.toString() });
+                console.error(`[ThreadPoolHost] Error executing WASM function ${functionName}:`, error, error.stack);
+                parentPort.postMessage({ type: 'wasmResult', callId, success: false, error: error.toString() });
             }
             break;
         case 'terminate':

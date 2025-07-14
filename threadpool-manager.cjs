@@ -16,7 +16,7 @@ class ThreadpoolManager {
         this.threadPoolHostWorker = null;
 
         // Map of requests made to the threadpool to their resolvers: requestId -> {resolve, reject}
-        this.pendingRequests = new Map();
+        this.pendingWasmRequests = new Map();
         this.nextRequestId = 1;
 
         // Heartbeat monitoring
@@ -34,7 +34,36 @@ class ThreadpoolManager {
 
         // Pool ready tracking
         this.poolReadyResolve = null;
+
+        // WASM proxy
+        this.wasmProxy = null;
     }
+
+    /**
+     * Create a proxy that forwards WASM calls to the threadpool host worker
+     * each wasm call is added to pendingWasmRequests with a unique callId
+     */
+    createWasmProxy() {
+        const handler = {
+            get: (target, prop) => {
+                return (...args) => {
+                    const callId = this.nextRequestId++;
+                    return new Promise((resolve, reject) => {
+                        this.pendingWasmRequests.set(callId, { resolve, reject });
+                        this.threadPoolHostWorker.postMessage({
+                            type: 'wasmCall',
+                            callId,
+                            functionName: prop,
+                            args
+                        });
+                    });
+                };
+            }
+        };
+
+        this.wasmProxy = new Proxy({}, handler);
+    }
+
 
     /**
     * Start the ThreadPoolHost worker which is responsible for spawning the threadpool
@@ -76,15 +105,21 @@ class ThreadpoolManager {
         await new Promise((resolve, reject) => {
             this.poolReadyResolve = resolve;
         });
+
+        // Create WASM proxy
+        this.createWasmProxy();
+
         // Start heartbeat monitoring
         this.startHeartbeatMonitoring();
     }
 
+
     /**
-     * Execute a WASM function with timeout monitoring
-     * functionName and args must be cloneable so they can be sent to the worker
+     * Execute a JS function on the main thread while the threadpool is active
+     * @param {Function} fn - The function to execute
+     * @param {Array} args - Arguments to pass to the function
      */
-    async execute(functionName, args = []) {
+    async execute(fn, args = []) {
         // Handle different pool states
         switch (this.poolState) {
             case 'none':
@@ -122,17 +157,17 @@ class ThreadpoolManager {
                 break;
         }
 
-        const requestId = this.nextRequestId++;
         try {
-            // Create promise for this request
-            const resultPromise = new Promise((resolve, reject) => this.pendingRequests.set(requestId, { resolve, reject }));
-            this.threadPoolHostWorker.postMessage({ type: 'execute', requestId, functionName, args });
-            return await resultPromise;
-        } finally {
-            this.pendingRequests.delete(requestId);
+            // Set global proxy reference for WASM functions to use
+            global.__wasmProxy = this.wasmProxy;
 
+            // Execute the function on main thread
+            return await fn(...args);
+        } finally {
+            // Clear global proxy reference
+            global.__wasmProxy = null;
             // Shut down immediately if no more pending requests
-            if (this.pendingRequests.size === 0 && this.poolState === 'running') {
+            if (this.pendingWasmRequests.size === 0 && this.poolState === 'running') {
                 console.log('No active requests, shutting down ThreadPool...');
                 this.poolState = 'exiting';
                 this.exitPromise = this.shutdown().then(() => {
@@ -155,10 +190,11 @@ class ThreadpoolManager {
                 // Pool is now initialized and ready to use
                 this.poolReadyResolve()
                 break;
-            case 'result':
-                // resolve the result from a task executed in the threadpool to its corresponding request
-                const request = this.pendingRequests.get(msg.requestId);
-                msg.success ? request.resolve(msg.result) : request.reject(new Error(msg.error));
+            case 'wasmResult':
+                // resolve the result from a WASM call
+                const wasmRequest = this.pendingWasmRequests.get(msg.callId);
+                msg.success ? wasmRequest.resolve(msg.result) : wasmRequest.reject(new Error(msg.error));
+                this.pendingWasmRequests.delete(msg.callId);
                 break;
             case 'heartbeat':
                 this.lastHeartbeat = msg.timestamp;
@@ -174,10 +210,10 @@ class ThreadpoolManager {
         console.error('ThreadPoolHost Worker error:', error);
 
         // Reject all pending requests
-        for (const [requestId, request] of this.pendingRequests) {
+        for (const [requestId, request] of this.pendingWasmRequests) {
             request.reject(new Error(`Worker failed: ${error}`));
         }
-        this.pendingRequests.clear();
+        this.pendingWasmRequests.clear();
         this.shutdown();
     }
 

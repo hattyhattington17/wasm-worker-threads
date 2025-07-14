@@ -30,5 +30,40 @@ if (isMainThread) {
 imports['env'] = env;
 `
   );
+  
+  // Add WASM proxy code to enable threadpool routing
+  src = src.replace(
+    /const wasmModule = new WebAssembly\.Module\(bytes\);\nconst wasmInstance = new WebAssembly\.Instance\(wasmModule, imports\);\nwasm = wasmInstance\.exports;\nmodule\.exports\.__wasm = wasm;/,
+    `const wasmModule = new WebAssembly.Module(bytes);
+const wasmInstance = new WebAssembly.Instance(wasmModule, imports);
+const originalWasm = wasmInstance.exports;
+
+// Store original wasm reference
+global.__originalWasm = originalWasm;
+
+// Create a function that returns the appropriate wasm object
+function getWasm() {
+    return global.__wasmProxy || originalWasm;
+}
+
+// Replace wasm with a dynamic reference
+wasm = new Proxy({}, {
+    get(target, prop) {
+        return getWasm()[prop];
+    },
+    has(target, prop) {
+        return prop in getWasm();
+    },
+    ownKeys(target) {
+        return Object.keys(getWasm());
+    },
+    getOwnPropertyDescriptor(target, prop) {
+        return Object.getOwnPropertyDescriptor(getWasm(), prop);
+    }
+});
+
+module.exports.__wasm = originalWasm;`
+  );
+  
   await fs.writeFile(file, src, 'utf8');
 })();
