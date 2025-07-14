@@ -1,4 +1,4 @@
-// worker process that spawns the Wasm threadpool, executes tasks with the threadpool, and broadcasts heartbeats
+// worker thread that spawns the Wasm threadpool, executes Wasm functions with the threadpool, and broadcasts heartbeats
 // If a background thread panics, this worker will silently hang and stop sending heartbeats so the main process can kill it
 const { parentPort, Worker } = require('worker_threads');
 const os = require('os');
@@ -23,7 +23,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Send heartbeat every second
-const heartbeatInterval = setInterval(() => {
+setInterval(() => {
     parentPort.postMessage({ type: 'heartbeat', timestamp: Date.now() });
 }, 1000);
 
@@ -32,20 +32,18 @@ let workersReadyResolve;
 let wasmWorkers = [], workerPorts = [];
 let numWorkers = 0;
 
-
 // handle requests to execute tasks with the threadpool
 parentPort.on('message', async (msg) => {
     console.log(`[ThreadPoolHost] Received message from ThreadpoolManager: ${JSON.stringify(msg)}`);
     switch (msg.type) {
         case 'initPool':
-            console.log(`[ThreadPoolHost] Starting pool initialization with ${msg.numWorkers} workers`);
             numWorkers = msg.numWorkers;
             // store the worker ports to be forwarded to the rayon workers
-            workerPorts = msg.ports; 
+            workerPorts = msg.ports;
             let workersReady = new Promise((resolve) => (workersReadyResolve = resolve));
             await wasm.initThreadPool(Math.max(1, (numWorkers ?? (os.availableParallelism?.() ?? 1) - 1)));
-            // wait until startWorkers signals readiness
-            await workersReady; 
+            // wait until startWorkers (called by Rust FFI) signals pool readiness
+            await workersReady;
             parentPort.postMessage({ type: 'poolReady' });
             break;
         case 'wasmCall':
@@ -55,7 +53,7 @@ parentPort.on('message', async (msg) => {
                 // Execute the WASM function
                 const result = await wasm[functionName](...args);
                 console.log(`[ThreadPoolHost] WASM function ${functionName} completed successfully, result: ${result}`);
-                
+
                 // Send result back to ThreadpoolManager
                 parentPort.postMessage({ type: 'wasmResult', callId, success: true, result: result });
             } catch (error) {
@@ -64,9 +62,7 @@ parentPort.on('message', async (msg) => {
             }
             break;
         case 'terminate':
-            console.log('[ThreadPoolHost] Received terminate message');
             await wasm.exitThreadPool();
-            console.log('[ThreadPoolHost] Exiting...');
             process.exit(0);
             break;
     }
@@ -83,7 +79,7 @@ parentPort.on('message', async (msg) => {
  * @param {{ numThreads(): number, receiver(): any, build(): void }} builder - builder object
  */
 async function startWorkers(memory, builder) {
-    const workerPath = path.resolve(__dirname, './rayon-worker.cjs');
+    const workerPath = path.resolve(__dirname, './threadpool-worker.cjs');
     wasmWorkers = [];
 
     // Ensure we have enough ports for all workers
@@ -123,12 +119,8 @@ async function startWorkers(memory, builder) {
 
 // kill the worker threads
 async function terminateWorkers() {
-    console.log("Terminating workers");
-    return Promise.all(
-        wasmWorkers.map((w) => w.terminate())
-    ).then(() => {
-        wasmWorkers = undefined;
-    });
+    return Promise.all(wasmWorkers.map((w) => w.terminate()))
+        .then(() =>   wasmWorkers = undefined);
 }
 
 // globals - callable by Wasm

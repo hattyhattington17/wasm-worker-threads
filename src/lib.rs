@@ -42,7 +42,7 @@ pub fn parallel_sum(inputs: Vec<i32>) -> i32 {
 /// Simulate some processing on each vector entry, this is always executed on a worker thread
 fn process_entry(n: i32) -> i32 {
     let idx = current_thread_index().unwrap_or(0);
-    post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
+    // post_message_to_main_thread(&format!("processing: {} on thread {}", n, idx));
     // if n == 3 {
     //     panic!("Simulated panic on worker thread for testing");
     // }
