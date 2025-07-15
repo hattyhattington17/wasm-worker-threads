@@ -1,4 +1,4 @@
-// worker thread that spawns the Wasm threadpool, executes Wasm functions with the threadpool, and broadcasts heartbeats
+// Host thread that spawns the Wasm threadpool, executes Wasm functions with the threadpool, and broadcasts heartbeats
 // If a background thread panics, this worker will silently hang and stop sending heartbeats so the main process can kill it
 const { parentPort, Worker } = require('worker_threads');
 const os = require('os');

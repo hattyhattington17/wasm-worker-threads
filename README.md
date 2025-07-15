@@ -10,6 +10,13 @@ Executing multithreaded code with Rayon compiled to Wasm in a nodejs environment
 - Worker threads can log via PostMessage to the main thread. A message channel is created for each worker, passed from ThreadPoolManager (main process) -> ThreadPoolHost -> Rayon worker thread during threadpool initialization
 - Arbitrary JS functions must be executable with the threadpool available. Wasm calls made by the JS functions are proxied into the ThreadPoolHost and tracked by ID via the `wasmProxy` in ThreadPoolManager, then later paired with responses posted by ThreadPoolHost 
 
+# Usage
+```shell
+npm run node
+```
+- Uncomment `panic` in lib.rs to see error
+- Uncomment log in lib.rs to verify parallel processing
+
 # Components
 
 ### ThreadpoolManager 

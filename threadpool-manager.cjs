@@ -1,8 +1,3 @@
-// Manages lifecycle and communication with Wasm threadpool which is spawned by a separate worker (threadpool-host.cjs)
-// provides an interface to execute Wasm functions on a Rayon thread pool
-// we spawn the threadpool from a worker because if a Rust background thread panics, the thread that's running the threadpool will silently hang
-// the manager will monitor the worker for heartbeats and terminate the worker and error if heartbeats are not received within a timeout period 
-
 const { Worker, MessageChannel } = require('worker_threads');
 const path = require('path');
 const os = require('os');

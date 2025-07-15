@@ -10,21 +10,18 @@ if (!mainThreadPort) {
 }
 
 // global function exposed to wasm - sends messages through this worker's channel to the main thread
-globalThis.postMessageToMainThread = (msg) => {
-  console.log(`Worker ${workerId} (thread ${threadId}) forwarding postMessage to main thread: ${msg}`);
-  mainThreadPort.postMessage(msg);
-};
+globalThis.postMessageToMainThread = (msg) => mainThreadPort.postMessage(msg);
 
-// notify parent (node-backend) that this worker is ready
 parentPort.postMessage({ type: 'wasm_bindgen_worker_ready' });
 
 try {
   // Calling `wbg_rayon_start_worker()` hands control to Rayon’s scheduler
-  // `receiver` is a raw pointer to a `rayon::ThreadBuilder`.
   wasm.wbg_rayon_start_worker(workerData.receiver);
 } catch (e) {
-  console.log(`Worker ${workerId} (thread ${threadId}) panicked`);
-  // Notify main thread about the panic - we must notify the main thread, ThreadPoolHost will be frozen 
+  // stdout pipes to the blocked host worker and does not display
+  // todo: either find a way to pipe stdout to the main thread or write a custom panic hook that posts messages to the main thread
+  console.log(`Worker ${workerId} (thread ${threadId}) panicked`); 
+  // Notify main thread about the panic
   mainThreadPort.postMessage({ type: 'worker_panic', workerId: workerId, error: e.stack, });
 }
 // in the success case, this never runs. The worker is closed by Rayon
